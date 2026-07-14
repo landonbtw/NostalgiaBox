@@ -10,8 +10,9 @@ dist/
 venv/
 
 # NostalgiaBox
-# NOTE: config.yaml is intentionally TRACKED for this box, so configuration
-# updates flow through git (pull + restart) just like code changes.
+# Each install has its own config (the installer creates it from
+# config.example.yaml). Keep personal configs out of the repo.
+config.yaml
 # Generated filler clips (created by `nostalgiabox --generate-assets`).
 nostalgiabox/assets/*.mp4
 

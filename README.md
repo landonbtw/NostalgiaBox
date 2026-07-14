@@ -131,7 +131,8 @@ are fine.
 
 ### Part F — Set up your channels
 
-Open the config file and point the channels at your show folders:
+The installer already created a `config.yaml` for you from the template. Open it
+and point the channels at your show folders:
 
 ```bash
 nano config.yaml
