@@ -100,6 +100,7 @@ class MpvPlayer(Player):
         hwdec: str = "auto-safe",
         glsl_shaders: Optional[str] = None,
         fonts_dir: Optional[Path] = None,
+        force_4_3: bool = True,
         extra_options: Optional[dict] = None,
     ) -> None:
         try:
@@ -155,6 +156,15 @@ class MpvPlayer(Player):
         if glsl_shaders:
             # The CRT curvature/vignette/scanline shader (see nostalgiabox.crt).
             options["glsl_shaders"] = glsl_shaders
+        if force_4_3:
+            # Fit ANY source into a 4:3 raster (letterboxing 16:9 with black
+            # bars), so every show - and the static/colour-bar clips - appears in
+            # the same 4:3 tube-TV frame. mpv then pillarboxes that 4:3 image on
+            # a 16:9 TV, and the CRT shader curves it.
+            options["vf"] = (
+                "lavfi=[scale=960:720:force_original_aspect_ratio=decrease,"
+                "pad=960:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1]"
+            )
         if extra_options:
             options.update(extra_options)
 

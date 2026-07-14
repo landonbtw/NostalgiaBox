@@ -108,6 +108,7 @@ def test_ui_and_crt_defaults(tmp_path):
     assert cfg.ui.color == "#4DFF5A"
     assert cfg.crt.enabled is True
     assert cfg.static_duration == 0.5
+    assert cfg.force_4_3 is True
 
 
 def test_ui_and_crt_overrides(tmp_path):

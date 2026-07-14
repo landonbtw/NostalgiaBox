@@ -103,6 +103,7 @@ class TVApp:
                 player = MpvPlayer(
                     glsl_shaders=str(shader_path) if shader_path else None,
                     fonts_dir=assets / "fonts",
+                    force_4_3=config.force_4_3,
                 )
 
         if input_manager is None:

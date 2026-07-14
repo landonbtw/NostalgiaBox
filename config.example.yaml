@@ -62,6 +62,8 @@ tune_in: random
 start_channel: 2          # which channel the box powers on to
 
 # --- The "feel" of the TV ----------------------------------------------------
+force_4_3: true           # show everything in a 4:3 tube frame (16:9 is
+                          #   letterboxed); the static/colour bars fill it too
 static_transition: true   # burst of analog snow when changing channels
 static_duration: 0.5      # seconds of snow between channels
 channel_bug_seconds: 4    # how long the channel banner lingers

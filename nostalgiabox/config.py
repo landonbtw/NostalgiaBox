@@ -85,6 +85,7 @@ class Config:
     start_channel: Optional[int] = None
 
     # Presentation / "feel" of the TV.
+    force_4_3: bool = True                 # letterbox everything into a 4:3 frame
     static_transition: bool = True
     static_duration: float = 0.5          # seconds of snow when changing channel
     channel_bug_seconds: float = 4.0      # how long the channel banner lingers
@@ -238,6 +239,7 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         video_extensions=extensions,
         tune_in=tune_in,
         start_channel=start_channel,
+        force_4_3=bool(data.get("force_4_3", True)),
         static_transition=bool(data.get("static_transition", True)),
         static_duration=_clamp_float(data.get("static_duration", 0.5), 0.0, 10.0, "static_duration"),
         channel_bug_seconds=_clamp_float(data.get("channel_bug_seconds", 4.0), 0.0, 60.0, "channel_bug_seconds"),

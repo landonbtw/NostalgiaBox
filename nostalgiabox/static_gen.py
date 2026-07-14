@@ -43,8 +43,8 @@ def generate_static(
     out_path: Path,
     *,
     duration: float = 1.0,
-    width: int = 1280,
-    height: int = 720,
+    width: int = 640,
+    height: int = 480,
     fps: int = 25,
 ) -> Path:
     """Render a loopable analog-snow clip with hiss to ``out_path``.
@@ -73,8 +73,8 @@ def generate_color_bars(
     out_path: Path,
     *,
     duration: float = 6.0,
-    width: int = 1280,
-    height: int = 720,
+    width: int = 640,
+    height: int = 480,
     fps: int = 25,
 ) -> Path:
     """Render SMPTE colour bars with a 1 kHz tone to ``out_path``."""
