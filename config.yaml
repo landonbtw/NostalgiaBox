@@ -36,10 +36,10 @@ bridge_seconds: 0.8       # keep the current show playing while the next loads,
 
 initial_volume: 70
 volume_step: 5
-# Send audio out HDMI (not the 3.5mm jack). If there's no sound, run
-#   nostalgiabox --list-audio
-# and set this to the HDMI device it prints (HDMI1 uses vc4hdmi1).
-audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
+# Send audio out HDMI (not the 3.5mm jack). TV is on the Pi's HDMI1 port (the
+# one next to the 3.5mm jack), which is vc4hdmi1. If sound ever moves, run
+# `nostalgiabox --list-audio` and update this.
+audio_device: "alsa/hdmi:CARD=vc4hdmi1,DEV=0"
 
 input:
   keyboard: true
