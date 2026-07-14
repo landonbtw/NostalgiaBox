@@ -17,7 +17,7 @@
 #   /media/nostalgiabox/
 #     ├── Dragon Tales/     -> channel 2 "Dragon Tales"
 #     ├── Arthur/           -> channel 3 "Arthur"
-#     └── Rugrats/          -> channel 4 "Rugrats"
+#     └── Bluey/            -> channel 4 "Bluey"
 #
 # media_root: /media/nostalgiabox
 # first_channel_number: 2      # what the first discovered channel is numbered
@@ -33,11 +33,20 @@ channels:
     name: "Arthur"
     path: /media/nostalgiabox/arthur
   - number: 4
-    name: "Rugrats"
-    path: /media/nostalgiabox/rugrats
-  - number: 5
     name: "The Magic School Bus"
     path: /media/nostalgiabox/magic-school-bus
+  - number: 5
+    name: "Bear in the Big Blue House"
+    path: /media/nostalgiabox/bear-in-the-big-blue-house
+  - number: 6
+    name: "Bluey"
+    path: /media/nostalgiabox/bluey
+  - number: 7
+    name: "Franklin"
+    path: /media/nostalgiabox/franklin
+  - number: 8
+    name: "Mister Rogers' Neighborhood"
+    path: /media/nostalgiabox/mister-rogers
 
 # -----------------------------------------------------------------------------
 # How a channel behaves when you tune into it.
