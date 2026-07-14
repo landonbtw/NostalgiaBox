@@ -36,7 +36,9 @@ source "${REPO_DIR}/.venv/bin/activate"
 
 echo "==> Installing NostalgiaBox and Python dependencies"
 pip install --upgrade pip
-pip install "${REPO_DIR}[pi]"
+# Editable install so that a plain `git pull` picks up code updates without
+# needing to reinstall (just restart the service afterwards).
+pip install -e "${REPO_DIR}[pi]"
 
 echo "==> Generating filler assets (static + colour bars)"
 python -m nostalgiabox.static_gen || echo "   (asset generation skipped/failed - box still works)"
