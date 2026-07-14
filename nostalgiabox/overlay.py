@@ -22,10 +22,24 @@ from typing import Callable, Dict, Optional
 from .config import Config, UiConfig
 from .player import Player
 
-# Virtual canvas the overlays are laid out on. mpv scales this to the display,
-# so the layout looks the same on a 720p or a 1080p TV.
+# Virtual canvas the overlays are laid out on. This maps to the WHOLE display
+# (a 16:9 TV), so mpv scales it to whatever the screen is.
 CANVAS_W = 1280
 CANVAS_H = 720
+
+# The video is forced into a 4:3 frame centred on the 16:9 canvas (see
+# MpvPlayer.force_4_3). We lay the OSD out *inside* that 4:3 frame - with a small
+# safe-area inset so nothing sits under the CRT's rounded corners - so the green
+# readouts always sit over the picture, never out in the black pillarbox bars.
+_FRAME_W = int(round(CANVAS_H * 4 / 3))        # 960
+_FRAME_X0 = (CANVAS_W - _FRAME_W) // 2          # 160
+_FRAME_X1 = _FRAME_X0 + _FRAME_W                # 1120
+_FRAME_CX = (_FRAME_X0 + _FRAME_X1) // 2        # 640
+_SAFE = 0.06
+_IX0 = _FRAME_X0 + int(_FRAME_W * _SAFE)        # ~217  (left safe edge)
+_IX1 = _FRAME_X1 - int(_FRAME_W * _SAFE)        # ~1062 (right safe edge)
+_IY0 = int(CANVAS_H * _SAFE)                     # ~43   (top safe edge)
+_IY1 = CANVAS_H - int(CANVAS_H * _SAFE)          # ~677  (bottom safe edge)
 
 # Overlay slots (ids). Each kind of overlay owns one id so it can be replaced
 # or cleared independently.
@@ -137,13 +151,13 @@ def _style(ui: UiConfig, *, size: int, alpha: int = 0) -> str:
 # ASS builders (free functions so they are easy to unit test)
 # --------------------------------------------------------------------------
 def _channel_bug_ass(number: int, name: str, ui: UiConfig) -> str:
-    """Green digital 'CH 03' + show name, flashed in the top-right corner."""
+    """Green digital 'CH 03' + show name, flashed inside the top-right of the frame."""
     num = f"{number:02d}"
     number_line = (
-        rf"{{\an9\pos({CANVAS_W - 48},48){_style(ui, size=96)}}}CH {num}"
+        rf"{{\an9\pos({_IX1},{_IY0}){_style(ui, size=88)}}}CH {num}"
     )
     name_line = (
-        rf"{{\an9\pos({CANVAS_W - 52},168){_style(ui, size=44)}}}{_escape(name)}"
+        rf"{{\an9\pos({_IX1},{_IY0 + 104}){_style(ui, size=40)}}}{_escape(name)}"
     )
     return "\n".join([number_line, name_line])
 
@@ -154,17 +168,18 @@ def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
     segments = 20
     filled = 0 if muted else round(level / 100 * segments)
 
-    x0 = 96
-    pitch = 34
-    bar_w = 18
-    bar_h = 52
-    row_top = CANVAS_H - 168
+    bar_w = 16
+    pitch = 38
+    bar_h = 48
+    total_w = (segments - 1) * pitch + bar_w
+    x0 = _FRAME_CX - total_w // 2          # centre the bar within the 4:3 frame
+    row_top = _IY1 - bar_h                  # sit just above the bottom safe edge
     dot_r = 6
     green = _hex_to_ass(ui.color)
 
     label = "Mute" if muted else "Volume"
     parts = [
-        rf"{{\an1\pos({x0},{row_top - 22}){_style(ui, size=52)}}}{label}"
+        rf"{{\an7\pos({x0},{row_top - 62}){_style(ui, size=48)}}}{label}"
     ]
 
     for i in range(segments):
@@ -180,11 +195,11 @@ def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
 
 def _message_ass(text: str, ui: UiConfig) -> str:
     """A centred green digital message (channel entry, 'NO SIGNAL', etc.)."""
-    return rf"{{\an8\pos({CANVAS_W // 2},60){_style(ui, size=64)}}}{_escape(text)}"
+    return rf"{{\an8\pos({_FRAME_CX},{_IY0}){_style(ui, size=60)}}}{_escape(text)}"
 
 
 def _standby_ass(ui: UiConfig) -> str:
-    return rf"{{\an5\pos({CANVAS_W // 2},{CANVAS_H // 2}){_style(ui, size=72)}}}STANDBY"
+    return rf"{{\an5\pos({_FRAME_CX},{CANVAS_H // 2}){_style(ui, size=72)}}}STANDBY"
 
 
 def _filled_rect(*, x: float, y: float, w: float, h: float, fill: str) -> str:
