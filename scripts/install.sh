@@ -41,6 +41,16 @@ pip install "${REPO_DIR}[pi]"
 echo "==> Generating filler assets (static + colour bars)"
 python -m nostalgiabox.static_gen || echo "   (asset generation skipped/failed - box still works)"
 
+echo "==> Installing the retro OSD font (VT323)"
+# NostalgiaBox also copies this into mpv's font dir at runtime, but installing it
+# system-wide makes it available everywhere (and to fontconfig).
+mkdir -p "${HOME}/.local/share/fonts" "${HOME}/.config/mpv/fonts"
+if compgen -G "${REPO_DIR}/nostalgiabox/assets/fonts/*.ttf" > /dev/null; then
+  cp "${REPO_DIR}"/nostalgiabox/assets/fonts/*.ttf "${HOME}/.local/share/fonts/" || true
+  cp "${REPO_DIR}"/nostalgiabox/assets/fonts/*.ttf "${HOME}/.config/mpv/fonts/" || true
+  command -v fc-cache > /dev/null && fc-cache -f "${HOME}/.local/share/fonts" || true
+fi
+
 if [[ ! -f "${REPO_DIR}/config.yaml" ]]; then
   echo "==> Creating a starter config.yaml (edit it to point at your shows!)"
   cp "${REPO_DIR}/config.example.yaml" "${REPO_DIR}/config.yaml"

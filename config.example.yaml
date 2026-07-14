@@ -63,9 +63,27 @@ start_channel: 2          # which channel the box powers on to
 
 # --- The "feel" of the TV ----------------------------------------------------
 static_transition: true   # burst of analog snow when changing channels
-static_duration: 0.6      # seconds of snow
+static_duration: 0.5      # seconds of snow between channels
 channel_bug_seconds: 4    # how long the channel banner lingers
 osd_duration: 2           # how long the volume bar / messages linger
+
+# --- On-screen display look (the green digital readouts) ---------------------
+ui:
+  font: "VT323"           # bundled retro terminal font (installed by install.sh)
+  color: "#4DFF5A"        # phosphor green for CH banner, volume bar, messages
+  dim_color: "#123B18"    # (reserved) colour for unlit elements
+  glow: true              # soft CRT-style glow around the text
+
+# --- CRT picture effect (for 4:3 shows on a flat TV) -------------------------
+# Bends the picture like a tube TV: a gentle bulge, rounded corners, a vignette
+# and faint scanlines. Set enabled:false if your Pi struggles or you dislike it.
+crt:
+  enabled: true
+  curvature: 0.10         # 0 = flat, ~0.2 = strongly bulged
+  corner_radius: 0.045    # how rounded the corners are
+  vignette: 0.22          # edge darkening (0-1)
+  scanlines: true
+  scanline_intensity: 0.12
 
 # --- Audio -------------------------------------------------------------------
 initial_volume: 70        # 0-100

@@ -1,11 +1,17 @@
-"""On-screen display: the channel banner, the volume bar, and messages.
+"""On-screen display: the green digital channel banner, volume bar, and messages.
 
-These are the little touches that sell the "it's a TV" illusion: the translucent
-channel number that flashes in the corner when you flip channels, and the
-segmented volume bar that slides up from the bottom. They are drawn as ASS
-overlays on a fixed 1280x720 virtual canvas (mpv scales it to whatever the TV
-is), and cleared automatically after a few seconds by :meth:`OverlayManager.tick`,
-which the main loop calls on every iteration.
+These are drawn to look like a late-90s/early-2000s TV's on-screen display: a
+chunky phosphor-green readout in a retro terminal font, with a soft CRT glow.
+Two signature elements:
+
+* the **channel banner** ("CH 03" + the show name) that flashes top-right when
+  you change channels, and
+* the **volume bar** - a row of solid green bars for the current level followed
+  by green dots for the rest, with a "Volume" label - matching a classic TV OSD.
+
+Everything is rendered as ASS overlays on a fixed 1280x720 virtual canvas (mpv
+scales it to the TV) and cleared automatically after a few seconds by
+:meth:`OverlayManager.tick`, which the main loop calls every iteration.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ from __future__ import annotations
 import time
 from typing import Callable, Dict, Optional
 
-from .config import Config
+from .config import Config, UiConfig
 from .player import Player
 
 # Virtual canvas the overlays are laid out on. mpv scales this to the display,
@@ -26,12 +32,9 @@ CANVAS_H = 720
 _ID_CHANNEL = 1
 _ID_VOLUME = 2
 _ID_STANDBY = 3
+_ID_MESSAGE = 4
 
-# ASS colour helpers: format is &HAABBGGRR (alpha then blue/green/red).
-_WHITE = "&H00FFFFFF"
 _BLACK = "&H00000000"
-_DIM = "&H60000000"     # translucent black (box backgrounds)
-_ACCENT = "&H0033CCFF"  # warm amber, very "cable box readout"
 
 
 class OverlayManager:
@@ -46,6 +49,7 @@ class OverlayManager:
     ) -> None:
         self._player = player
         self._config = config
+        self._ui = config.ui
         self._clock = clock
         # overlay id -> wall time (monotonic) at which it should disappear.
         self._expiry: Dict[int, float] = {}
@@ -56,7 +60,7 @@ class OverlayManager:
     ) -> None:
         """Flash the channel number + name, like changing channels on a cable box."""
         dur = self._config.channel_bug_seconds if duration is None else duration
-        ass = _channel_bug_ass(number, name)
+        ass = _channel_bug_ass(number, name, self._ui)
         self._player.set_overlay(_ID_CHANNEL, ass, CANVAS_W, CANVAS_H)
         self._arm(_ID_CHANNEL, dur)
 
@@ -64,17 +68,19 @@ class OverlayManager:
         self, level: int, muted: bool, *, duration: Optional[float] = None
     ) -> None:
         dur = self._config.osd_duration if duration is None else duration
-        ass = _volume_ass(level, muted)
+        ass = _volume_ass(level, muted, self._ui)
         self._player.set_overlay(_ID_VOLUME, ass, CANVAS_W, CANVAS_H)
         self._arm(_ID_VOLUME, dur)
 
     def show_message(self, text: str, *, duration: Optional[float] = None) -> None:
         dur = self._config.osd_duration if duration is None else duration
-        self._player.show_text(text, dur)
+        ass = _message_ass(text, self._ui)
+        self._player.set_overlay(_ID_MESSAGE, ass, CANVAS_W, CANVAS_H)
+        self._arm(_ID_MESSAGE, dur)
 
     def show_standby(self) -> None:
-        """Persistent 'no signal / standby' notice (does not auto-expire)."""
-        ass = _standby_ass()
+        """Persistent 'standby' notice for when the box is 'off'."""
+        ass = _standby_ass(self._ui)
         self._player.set_overlay(_ID_STANDBY, ass, CANVAS_W, CANVAS_H)
         self._expiry.pop(_ID_STANDBY, None)
 
@@ -91,7 +97,7 @@ class OverlayManager:
                 self._expiry.pop(overlay_id, None)
 
     def clear_all(self) -> None:
-        for overlay_id in (_ID_CHANNEL, _ID_VOLUME, _ID_STANDBY):
+        for overlay_id in (_ID_CHANNEL, _ID_VOLUME, _ID_STANDBY, _ID_MESSAGE):
             self._player.clear_overlay(overlay_id)
         self._expiry.clear()
 
@@ -105,68 +111,80 @@ class OverlayManager:
 
 
 # --------------------------------------------------------------------------
-# ASS builders. Kept as free functions so they are easy to unit test.
+# Colour + style helpers
 # --------------------------------------------------------------------------
-def _channel_bug_ass(number: int, name: str) -> str:
-    """A translucent panel in the top-right with the channel number and name."""
+def _hex_to_ass(hex_color: str, alpha: int = 0) -> str:
+    """Convert ``#RRGGBB`` to an ASS ``&HAABBGGRR`` colour string."""
+    h = hex_color.lstrip("#")
+    r, g, b = h[0:2], h[2:4], h[4:6]
+    return f"&H{alpha:02X}{b}{g}{r}".upper()
+
+
+def _style(ui: UiConfig, *, size: int, alpha: int = 0) -> str:
+    """Common ASS override tags: retro font, green fill, and a soft CRT glow."""
+    color = _hex_to_ass(ui.color, alpha)
+    tags = rf"\fn{ui.font}\b1\fs{size}\c{color}\1a&H{alpha:02X}&"
+    if ui.glow:
+        # A blurred green border reads as phosphor bloom; a faint dark edge keeps
+        # it legible over bright video.
+        tags += rf"\bord2\blur4\3c{color}\4c{_BLACK}\shad0"
+    else:
+        tags += rf"\bord2\3c{_BLACK}\shad0"
+    return tags
+
+
+# --------------------------------------------------------------------------
+# ASS builders (free functions so they are easy to unit test)
+# --------------------------------------------------------------------------
+def _channel_bug_ass(number: int, name: str, ui: UiConfig) -> str:
+    """Green digital 'CH 03' + show name, flashed in the top-right corner."""
     num = f"{number:02d}"
-    safe_name = _escape(name.upper())
-    # Box in the top-right corner.
-    box = _rounded_box(x=CANVAS_W - 360, y=40, w=320, h=120, fill=_DIM)
-    # Big amber channel number.
-    number_txt = (
-        rf"{{\an7\pos({CANVAS_W - 340},58)\fs74\b1\c{_ACCENT}\bord2\3c{_BLACK}}}{num}"
+    number_line = (
+        rf"{{\an9\pos({CANVAS_W - 48},48){_style(ui, size=96)}}}CH {num}"
     )
-    # Show name under the number, white.
-    name_txt = (
-        rf"{{\an7\pos({CANVAS_W - 340},140)\fs30\b1\c{_WHITE}\bord2\3c{_BLACK}}}{safe_name}"
+    name_line = (
+        rf"{{\an9\pos({CANVAS_W - 52},168){_style(ui, size=44)}}}{_escape(name)}"
     )
-    # Small "CH" label to the right of the number.
-    ch_lbl = (
-        rf"{{\an7\pos({CANVAS_W - 220},70)\fs26\b1\c{_WHITE}\bord2\3c{_BLACK}}}CH"
-    )
-    return "\n".join([box, number_txt, ch_lbl, name_txt])
+    return "\n".join([number_line, name_line])
 
 
-def _volume_ass(level: int, muted: bool) -> str:
-    """A segmented volume bar sliding up from the bottom centre."""
+def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
+    """A 'Volume' label with solid green bars (level) then green dots (remainder)."""
     level = max(0, min(100, int(level)))
     segments = 20
     filled = 0 if muted else round(level / 100 * segments)
 
-    bar_w = 600
-    bar_h = 34
-    x0 = (CANVAS_W - bar_w) // 2
-    y0 = CANVAS_H - 110
-    gap = 4
-    seg_w = (bar_w - gap * (segments - 1)) / segments
+    x0 = 96
+    pitch = 34
+    bar_w = 18
+    bar_h = 52
+    row_top = CANVAS_H - 168
+    dot_r = 6
+    green = _hex_to_ass(ui.color)
 
-    parts = [_rounded_box(x=x0 - 24, y=y0 - 54, w=bar_w + 48, h=bar_h + 96, fill=_DIM)]
+    label = "Mute" if muted else "Volume"
+    parts = [
+        rf"{{\an1\pos({x0},{row_top - 22}){_style(ui, size=52)}}}{label}"
+    ]
 
-    label = "MUTE" if muted else "VOLUME"
-    label_colour = _ACCENT if muted else _WHITE
-    parts.append(
-        rf"{{\an7\pos({x0},{y0 - 44})\fs28\b1\c{label_colour}\bord2\3c{_BLACK}}}{label}"
-    )
-    if not muted:
-        parts.append(
-            rf"{{\an7\pos({x0 + bar_w - 70},{y0 - 44})\fs28\b1\c{_WHITE}\bord2\3c{_BLACK}}}{level:3d}%"
-        )
-
-    # Draw each segment as a small rectangle; filled ones amber, rest dim.
     for i in range(segments):
-        sx = x0 + i * (seg_w + gap)
-        colour = _ACCENT if i < filled else "&H00333333"
-        parts.append(_filled_rect(x=sx, y=y0, w=seg_w, h=bar_h, fill=colour))
+        cx = x0 + i * pitch + bar_w / 2
+        if i < filled:
+            parts.append(
+                _filled_rect(x=x0 + i * pitch, y=row_top, w=bar_w, h=bar_h, fill=green)
+            )
+        else:
+            parts.append(_dot(cx=cx, cy=row_top + bar_h / 2, r=dot_r, fill=green))
     return "\n".join(parts)
 
 
-def _standby_ass() -> str:
-    """A simple centred 'standby' notice for when the box is 'off'."""
-    return (
-        rf"{{\an5\pos({CANVAS_W // 2},{CANVAS_H // 2})\fs54\b1\c{_WHITE}"
-        rf"\bord3\3c{_BLACK}}}STANDBY"
-    )
+def _message_ass(text: str, ui: UiConfig) -> str:
+    """A centred green digital message (channel entry, 'NO SIGNAL', etc.)."""
+    return rf"{{\an8\pos({CANVAS_W // 2},60){_style(ui, size=64)}}}{_escape(text)}"
+
+
+def _standby_ass(ui: UiConfig) -> str:
+    return rf"{{\an5\pos({CANVAS_W // 2},{CANVAS_H // 2}){_style(ui, size=72)}}}STANDBY"
 
 
 def _filled_rect(*, x: float, y: float, w: float, h: float, fill: str) -> str:
@@ -174,22 +192,28 @@ def _filled_rect(*, x: float, y: float, w: float, h: float, fill: str) -> str:
     x, y = round(x), round(y)
     w, h = round(w), round(h)
     draw = f"m 0 0 l {w} 0 l {w} {h} l 0 {h}"
-    return rf"{{\an7\pos({x},{y})\p1\c{fill}\bord0\shad0}}{draw}{{\p0}}"
+    return rf"{{\an7\pos({x},{y})\p1\c{fill}\1a&H00&\bord0\shad0}}{draw}{{\p0}}"
 
 
-def _rounded_box(*, x: int, y: int, w: int, h: int, fill: str) -> str:
-    """A background box. (Rendered as a plain rectangle - ASS has no easy
-    rounded rect, but the translucent fill reads fine on a TV.)"""
-    return _filled_rect(x=x, y=y, w=w, h=h, fill=fill)
+def _dot(*, cx: float, cy: float, r: float, fill: str) -> str:
+    """A small filled circle centred at (cx, cy) using 4 bezier arcs."""
+    c = 0.5523 * r  # magic constant to approximate a circle with cubic beziers
+    x, y = round(cx), round(cy)
+    r = round(r, 2)
+    c = round(c, 2)
+    path = (
+        f"m 0 {-r} "
+        f"b {c} {-r} {r} {-c} {r} 0 "
+        f"b {r} {c} {c} {r} 0 {r} "
+        f"b {-c} {r} {-r} {c} {-r} 0 "
+        f"b {-r} {-c} {-c} {-r} 0 {-r}"
+    )
+    return rf"{{\an5\pos({x},{y})\p1\c{fill}\1a&H00&\bord0\shad0}}{path}{{\p0}}"
 
 
 def _escape(text: str) -> str:
     """Escape characters that are meaningful inside an ASS override block."""
-    return (
-        text.replace("\\", "\\\\")
-        .replace("{", "(")
-        .replace("}", ")")
-    )
+    return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
 
 
 __all__ = ["OverlayManager", "CANVAS_W", "CANVAS_H"]

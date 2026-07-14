@@ -42,12 +42,16 @@ def _run(cmd: List[str]) -> None:
 def generate_static(
     out_path: Path,
     *,
-    duration: float = 2.0,
+    duration: float = 1.0,
     width: int = 1280,
     height: int = 720,
     fps: int = 25,
 ) -> Path:
-    """Render a loopable analog-snow clip with hiss to ``out_path``."""
+    """Render a loopable analog-snow clip with hiss to ``out_path``.
+
+    Only ~0.5s is shown per channel change, but we render a full second so the
+    brief loop never shows a visible seam.
+    """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y",

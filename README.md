@@ -128,7 +128,7 @@ Actions are mapped generously so almost any remote works. The main buttons:
 | Mute                   | Mute                            | `m`                   |
 | Go to channel number   | digits `0`–`9`, then **OK**     | digits, then Enter    |
 | Info banner            | Info / Guide                    | `i`                   |
-| Last channel           | Prev / Back / Exit              | (Back key)            |
+| Last channel           | Prev / Back / Exit              | `l` (or Back key)     |
 | Power / standby        | Power                           | `p`                   |
 | Quit the app           | —                               | `q` / Esc             |
 
@@ -159,6 +159,34 @@ input:
 Everything is optional except the channels themselves. Unavailable input
 backends are skipped automatically, so the same config works on the Pi and on a
 laptop.
+
+### Retro look: the green OSD and the CRT effect
+
+The on-screen readouts (channel banner, volume bar, messages) are drawn in a
+phosphor-green retro terminal font (**VT323**, bundled, installed by the
+setup script). And because these shows were made for 4:3 tube TVs, an optional
+GLSL **CRT effect** bends the picture like a real CRT — a gentle bulge, rounded
+corners, a vignette, and faint scanlines:
+
+```yaml
+ui:
+  font: "VT323"          # any installed font family name
+  color: "#4DFF5A"       # phosphor green
+  glow: true             # soft CRT bloom around the text
+
+crt:
+  enabled: true          # set false if the Pi struggles or you prefer flat
+  curvature: 0.10        # 0 = flat, ~0.2 = strongly bulged
+  corner_radius: 0.045
+  vignette: 0.22
+  scanlines: true
+  scanline_intensity: 0.12
+```
+
+The CRT effect is a cosmetic shader: if it ever fails to compile on a given GPU,
+mpv just logs it and keeps playing. Toggle it live by editing `crt.enabled` and
+restarting the service. 4:3 shows are always pillar-boxed (never stretched)
+inside the frame.
 
 ---
 

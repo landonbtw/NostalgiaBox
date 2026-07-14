@@ -38,6 +38,28 @@ TUNE_IN_MODES = ("random", "resume", "broadcast")
 
 
 @dataclass(frozen=True)
+class UiConfig:
+    """Look of the on-screen overlays (the green digital TV readouts)."""
+
+    font: str = "VT323"             # bundled retro terminal font (OFL)
+    color: str = "#4DFF5A"          # bright CRT phosphor green
+    dim_color: str = "#123B18"      # unlit volume segment / dot colour
+    glow: bool = True               # soft glow around text for that CRT bloom
+
+
+@dataclass(frozen=True)
+class CrtConfig:
+    """The CRT picture effect applied to the 4:3 video via a GLSL shader."""
+
+    enabled: bool = True
+    curvature: float = 0.10         # barrel "bulge" amount (0 = perfectly flat)
+    corner_radius: float = 0.045    # rounded-corner size (fraction of screen)
+    vignette: float = 0.22          # darkening toward the edges
+    scanlines: bool = True
+    scanline_intensity: float = 0.12
+
+
+@dataclass(frozen=True)
 class ChannelConfig:
     """A single television channel backed by a folder of episodes."""
 
@@ -64,9 +86,11 @@ class Config:
 
     # Presentation / "feel" of the TV.
     static_transition: bool = True
-    static_duration: float = 0.6          # seconds of snow when changing channel
+    static_duration: float = 0.5          # seconds of snow when changing channel
     channel_bug_seconds: float = 4.0      # how long the channel banner lingers
     osd_duration: float = 2.0             # how long volume/message overlays linger
+    ui: UiConfig = field(default_factory=UiConfig)
+    crt: CrtConfig = field(default_factory=CrtConfig)
 
     # Audio.
     initial_volume: int = 70              # 0-100
@@ -215,9 +239,11 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         tune_in=tune_in,
         start_channel=start_channel,
         static_transition=bool(data.get("static_transition", True)),
-        static_duration=_clamp_float(data.get("static_duration", 0.6), 0.0, 10.0, "static_duration"),
+        static_duration=_clamp_float(data.get("static_duration", 0.5), 0.0, 10.0, "static_duration"),
         channel_bug_seconds=_clamp_float(data.get("channel_bug_seconds", 4.0), 0.0, 60.0, "channel_bug_seconds"),
         osd_duration=_clamp_float(data.get("osd_duration", 2.0), 0.0, 60.0, "osd_duration"),
+        ui=_parse_ui(data.get("ui")),
+        crt=_parse_crt(data.get("crt")),
         initial_volume=initial_volume,
         volume_step=volume_step,
         scan_recursive=bool(data.get("scan_recursive", True)),
@@ -241,6 +267,48 @@ def load_config(path: os.PathLike | str) -> Config:
         raise ConfigError(f"could not parse YAML in {cfg_path}: {exc}") from exc
 
     return config_from_dict(data, base_dir=cfg_path.parent)
+
+
+def _parse_ui(raw: Any) -> UiConfig:
+    if raw is None:
+        return UiConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("'ui' must be a mapping")
+    defaults = UiConfig()
+    return UiConfig(
+        font=str(raw.get("font", defaults.font)),
+        color=_valid_color(raw.get("color", defaults.color), "ui.color"),
+        dim_color=_valid_color(raw.get("dim_color", defaults.dim_color), "ui.dim_color"),
+        glow=bool(raw.get("glow", defaults.glow)),
+    )
+
+
+def _parse_crt(raw: Any) -> CrtConfig:
+    if raw is None:
+        return CrtConfig()
+    if not isinstance(raw, dict):
+        raise ConfigError("'crt' must be a mapping")
+    d = CrtConfig()
+    return CrtConfig(
+        enabled=bool(raw.get("enabled", d.enabled)),
+        curvature=_clamp_float(raw.get("curvature", d.curvature), 0.0, 0.5, "crt.curvature"),
+        corner_radius=_clamp_float(raw.get("corner_radius", d.corner_radius), 0.0, 0.3, "crt.corner_radius"),
+        vignette=_clamp_float(raw.get("vignette", d.vignette), 0.0, 1.0, "crt.vignette"),
+        scanlines=bool(raw.get("scanlines", d.scanlines)),
+        scanline_intensity=_clamp_float(
+            raw.get("scanline_intensity", d.scanline_intensity), 0.0, 1.0, "crt.scanline_intensity"
+        ),
+    )
+
+
+def _valid_color(value: Any, name: str) -> str:
+    """Validate a ``#RRGGBB`` hex colour string."""
+    import re
+
+    s = str(value).strip()
+    if not re.fullmatch(r"#?[0-9a-fA-F]{6}", s):
+        raise ConfigError(f"'{name}' must be a hex colour like '#4DFF5A', got '{value}'")
+    return s if s.startswith("#") else f"#{s}"
 
 
 def _ensure_unique_numbers(channels: List[ChannelConfig]) -> None:
@@ -273,6 +341,8 @@ def _clamp_float(value: Any, lo: float, hi: float, name: str) -> float:
 __all__ = [
     "Config",
     "ChannelConfig",
+    "UiConfig",
+    "CrtConfig",
     "ConfigError",
     "load_config",
     "config_from_dict",

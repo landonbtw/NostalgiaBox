@@ -44,7 +44,7 @@ def test_start_tunes_to_start_channel_and_plays(tmp_path):
     assert app.lineup.current.number == 2
     assert player.current is not None  # an episode is playing
     assert player.volume == 70
-    assert player.overlays.get(1) and "DRAGON TALES" in player.overlays[1]
+    assert player.overlays.get(1) and "Dragon Tales" in player.overlays[1]
 
 
 def test_channel_up_down_wraps(tmp_path):
@@ -68,7 +68,7 @@ def test_volume_controls(tmp_path):
     send(app, Action.VOLUME_DOWN)
     assert app.volume == 70
     # volume overlay was drawn
-    assert "70%" in player.overlays[2]
+    assert "Volume" in player.overlays[2]
 
 
 def test_volume_clamps(tmp_path):
@@ -113,7 +113,7 @@ def test_invalid_channel_entry_shows_message(tmp_path):
     app, player, _ = build_app(tmp_path)
     app.start()
     assert app.select_channel_number(99) is False
-    assert any("NO CHANNEL" in m for m, _ in player.messages)
+    assert "NO CHANNEL" in player.overlays.get(4, "")
     assert app.lineup.current.number == 2  # unchanged
 
 
@@ -192,7 +192,7 @@ def test_empty_channel_shows_no_signal(tmp_path):
     )
     app = TVApp(config, MockPlayer(), InputManager([]), clock=FakeClock())
     app.start()  # starts on ch 2 which is empty
-    assert any("NO SIGNAL" in m for m, _ in app.player.messages)
+    assert "NO SIGNAL" in app.player.overlays.get(4, "")
 
 
 def test_resume_mode_restarts_where_left(tmp_path):
