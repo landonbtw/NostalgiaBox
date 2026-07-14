@@ -31,6 +31,8 @@ tune_in: random
 start_channel: 2
 start_offset: [6, 10]     # begin each show a random 6-10 seconds in
 transition: none          # no glitch/static on channel change
+bridge_seconds: 0.8       # keep the current show playing while the next loads,
+                          #   then cut over (no frozen frame on channel change)
 
 initial_volume: 70
 volume_step: 5

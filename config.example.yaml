@@ -76,10 +76,15 @@ force_4_3: false
 # intro too). Use a single number for a fixed offset, e.g. `start_offset: 5`.
 start_offset: [6, 10]
 
-# Channel-change effect: "none" (cut straight over, default), "glitch" (brief
-# digital corruption), or "static" (analog snow).
+# Channel-change effect: "none" (default), "glitch" (brief digital corruption),
+# or "static" (analog snow).
 transition: none
 transition_duration: 0.4  # how long the effect shows (if not "none")
+
+# With transition "none", keep the current show playing this many seconds while
+# the next channel loads in the background, then cut over - so the picture never
+# freezes on a channel change. 0 = switch immediately.
+bridge_seconds: 0.8
 channel_bug_seconds: 4    # how long the channel banner lingers
 osd_duration: 2           # how long the volume bar / messages linger
 

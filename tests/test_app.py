@@ -178,14 +178,29 @@ def test_glitch_transition_then_episode(tmp_path):
 
 
 def test_transition_none_cuts_straight(tmp_path):
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / "glitch.mp4").write_bytes(b"\x00")
-    app, player, _ = build_app(tmp_path, assets_dir=assets, transition="none")
+    # bridge_seconds=0 -> switch immediately, no transition clip, no preload
+    app, player, _ = build_app(tmp_path, transition="none", bridge_seconds=0)
     app.start()
+    first = player.current
     send(app, Action.CHANNEL_UP)
-    assert not player.transitions  # no transition clip; cut straight to episode
-    assert player.current is not None
+    assert not player.transitions
+    assert player.preloaded is None
+    assert player.current is not None and player.current != first
+
+
+def test_channel_change_bridges_current_until_next_ready(tmp_path):
+    # With bridge_seconds>0 and no transition, the current show keeps playing
+    # while the next channel preloads, then cuts over after the window.
+    app, player, clock = build_app(tmp_path, bridge_seconds=0.8)
+    app.start()
+    first = player.current
+    send(app, Action.CHANNEL_UP)
+    assert player.current == first          # old show still playing...
+    assert player.preloaded is not None     # ...next channel preloading
+    clock.advance(1.0)
+    app.step()                              # bridge window elapsed -> switch
+    assert player.preloaded is None
+    assert player.current is not None and player.current != first
 
 
 def test_advance_within_channel_has_no_transition(tmp_path):
@@ -232,11 +247,12 @@ def test_empty_channel_shows_no_signal(tmp_path):
 
 
 def test_resume_mode_restarts_where_left(tmp_path):
-    app, player, _ = build_app(tmp_path, tune_in="resume")
+    # bridge_seconds=0 keeps this test focused on resume (immediate switches)
+    app, player, _ = build_app(tmp_path, tune_in="resume", bridge_seconds=0)
     app.start()
     playing = player.current
     player.time_pos = 42.0
-    send(app, Action.CHANNEL_UP)  # leave ch 2, remembering position
-    send(app, Action.CHANNEL_DOWN)  # back to ch 2
+    send(app, Action.CHANNEL_UP)  # leave ch 2, remembering position 42
+    send(app, Action.CHANNEL_DOWN)  # back to ch 2 -> resume at 42
     assert player.current == playing
     assert player.played[-1] == (playing, 42.0)

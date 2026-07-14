@@ -181,6 +181,7 @@ start_channel: 2         # channel to power on to
 start_offset: [6, 10]    # start each episode a random 6-10s in (or a single number)
 transition: none         # channel-change effect: none | glitch | static
 transition_duration: 0.4
+bridge_seconds: 0.8      # keep the current show playing while the next channel loads
 channel_bug_seconds: 4   # how long the channel banner lingers
 initial_volume: 70       # 0–100
 volume_step: 5

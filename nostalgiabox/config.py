@@ -104,6 +104,10 @@ class Config:
     start_offset_max: float = 10.0
     transition_effect: str = "none"       # channel-change effect: none|glitch|static
     transition_duration: float = 0.4      # length of the channel-change effect
+    # When there's no transition effect, keep the current show playing this many
+    # seconds while the next channel preloads, then cut over (avoids a frozen
+    # frame on channel change). 0 = switch immediately.
+    bridge_seconds: float = 0.8
     channel_bug_seconds: float = 4.0      # how long the channel banner lingers
     osd_duration: float = 2.0             # how long volume/message overlays linger
     ui: UiConfig = field(default_factory=UiConfig)
@@ -299,6 +303,7 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         start_offset_max=_offset_range(data)[1],
         transition_effect=_valid_transition(data.get("transition", "none")),
         transition_duration=_clamp_float(data.get("transition_duration", 0.4), 0.0, 10.0, "transition_duration"),
+        bridge_seconds=_clamp_float(data.get("bridge_seconds", 0.8), 0.0, 10.0, "bridge_seconds"),
         channel_bug_seconds=_clamp_float(data.get("channel_bug_seconds", 4.0), 0.0, 60.0, "channel_bug_seconds"),
         osd_duration=_clamp_float(data.get("osd_duration", 2.0), 0.0, 60.0, "osd_duration"),
         ui=_parse_ui(data.get("ui")),

@@ -58,6 +58,18 @@ class Player(ABC):
         """
         self.play(target_path, start=start)
 
+    def preload_next(self, target_path: Path, *, start: float = 0.0) -> None:
+        """Begin loading ``target_path`` in the background while the CURRENT item
+        keeps playing. Call :meth:`commit_switch` to cut over once it's ready.
+
+        The default implementation has no way to preload, so it just plays the
+        target immediately; :class:`MpvPlayer` overrides it.
+        """
+        self.play(target_path, start=start)
+
+    def commit_switch(self) -> None:
+        """Switch to the item queued by :meth:`preload_next` (no-op by default)."""
+
     @abstractmethod
     def stop(self) -> None:
         """Stop playback and show a blank screen."""
@@ -257,6 +269,31 @@ class MpvPlayer(Player):
             log.exception("failed transition to %s", target_path)
             self.play(target_path, start=start)
 
+    def preload_next(self, target_path: Path, *, start: float = 0.0) -> None:
+        # Keep the currently-playing item on screen and append the target as a
+        # second playlist entry. With prefetch-playlist=yes, mpv opens/decodes it
+        # in the background while the current show keeps playing, so commit_switch
+        # can cut over near-instantly (no frozen frame).
+        self._suppress = True  # ignore the outgoing show's own eof during the bridge
+        try:
+            self._mpv.command("playlist-clear")  # drop any earlier pending append
+            if start and start > 0:
+                self._mpv.loadfile(str(target_path), "append", start=f"+{start:.3f}")
+            else:
+                self._mpv.loadfile(str(target_path), "append")
+        except Exception:  # noqa: BLE001
+            log.exception("failed to preload %s", target_path)
+            self.play(target_path, start=start)
+
+    def commit_switch(self) -> None:
+        self._suppress = False
+        try:
+            self._mpv.command("playlist-next", "force")  # jump to the prefetched item
+            self._mpv.command("playlist-clear")          # keep only the new current
+            self._mpv.pause = False
+        except Exception:  # noqa: BLE001
+            log.debug("commit_switch failed", exc_info=True)
+
     def stop(self) -> None:
         self._suppress = True
         try:
@@ -333,6 +370,7 @@ class MockPlayer(Player):
         # Recorded history, handy for assertions in tests.
         self.played: List[Tuple[Path, float]] = []
         self.transitions: List[Tuple[Path, Path, float]] = []
+        self.preloaded: Optional[Tuple[Path, float]] = None
         self.messages: List[Tuple[str, float]] = []
         self.overlays: dict[int, str] = {}
         self.stops = 0
@@ -369,9 +407,26 @@ class MockPlayer(Player):
         self.played.append((target_path, start))
         self._log(f"TRANSITION static={static_path} -> {target_path} @ {start:.1f}s")
 
+    def preload_next(self, target_path: Path, *, start: float = 0.0) -> None:
+        # The current item keeps "playing"; the target is queued, not shown yet.
+        self.preloaded = (target_path, start)
+        self._log(f"PRELOAD {target_path} @ {start:.1f}s (current keeps playing)")
+
+    def commit_switch(self) -> None:
+        if self.preloaded is None:
+            return
+        target, start = self.preloaded
+        self.preloaded = None
+        self.current = target
+        self.looping = None
+        self.time_pos = start
+        self.played.append((target, start))
+        self._log(f"COMMIT SWITCH -> {target} @ {start:.1f}s")
+
     def stop(self) -> None:
         self.current = None
         self.looping = None
+        self.preloaded = None
         self.stops += 1
         self._log("STOP")
 

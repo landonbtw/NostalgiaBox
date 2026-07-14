@@ -70,6 +70,10 @@ class TVApp:
         self._digit_deadline = 0.0
         self._digit_entry_timeout = 2.0
 
+        # Pending "bridge" switch: keep the old show playing until this deadline,
+        # then cut to the channel that was preloaded.
+        self._switch_deadline: Optional[float] = None
+
         # Playback-finished events from the player (may arrive on any thread).
         self._ended: "queue.Queue[str]" = queue.Queue()
         self.player.on_end = self._ended.put
@@ -162,12 +166,19 @@ class TVApp:
         """
         now = self._clock()
         self.overlay.tick()
+        self._maybe_commit_switch(now)
         self._maybe_commit_digits(now)
         self._drain_playback_events()
 
         event = self.input.get(timeout=timeout if block else 0.0)
         if event is not None:
             self.handle_event(event)
+
+    def _maybe_commit_switch(self, now: float) -> None:
+        """Cut over to the preloaded channel once the bridge window has elapsed."""
+        if self._switch_deadline is not None and now >= self._switch_deadline:
+            self._switch_deadline = None
+            self.player.commit_switch()
 
     # -- input handling -----------------------------------------------------
     def handle_event(self, event: InputEvent) -> None:
@@ -252,9 +263,13 @@ class TVApp:
             self._show_no_signal(channel)
             return
 
-        if show_static and self._transition_path is not None:
-            # Transition clip (glitch/static) + preloaded episode = a fast,
-            # covered channel change.
+        if not show_static:
+            # Not a channel change (first tune / waking from standby): play now.
+            self._switch_deadline = None
+            self._play_request(request)
+        elif self._transition_path is not None:
+            # Transition clip (glitch/static) + preloaded episode.
+            self._switch_deadline = None
             self._playing_path = request.path
             self.player.play_transition(
                 self._transition_path,
@@ -262,7 +277,14 @@ class TVApp:
                 start=request.start,
                 static_seconds=self.config.transition_duration,
             )
+        elif self.config.bridge_seconds > 0 and self._playing_path is not None:
+            # No transition effect: keep the current show playing while the next
+            # channel preloads, then cut over (no frozen frame).
+            self._playing_path = request.path
+            self.player.preload_next(request.path, start=request.start)
+            self._switch_deadline = self._clock() + self.config.bridge_seconds
         else:
+            self._switch_deadline = None
             self._play_request(request)
 
     def _play_request(self, request: PlayRequest) -> None:
@@ -270,6 +292,7 @@ class TVApp:
         self.player.play(request.path, start=request.start)
 
     def _show_no_signal(self, channel: Channel) -> None:
+        self._switch_deadline = None
         self._playing_path = None
         if self._colorbars_path is not None:
             self.player.play_loop(self._colorbars_path)
@@ -308,6 +331,7 @@ class TVApp:
         self.standby = not self.standby
         if self.standby:
             self._remember_position()
+            self._switch_deadline = None
             self.player.stop()
             self.overlay.clear_all()
             self.overlay.show_standby()

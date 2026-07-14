@@ -112,6 +112,7 @@ def test_ui_and_crt_defaults(tmp_path):
     assert cfg.start_offset_max == 10.0
     assert cfg.transition_effect == "none"
     assert cfg.transition_duration == 0.4
+    assert cfg.bridge_seconds == 0.8
 
 
 def test_start_offset_forms(tmp_path):
