@@ -1,85 +1,118 @@
 # NostalgiaBox
 
-Turn a Raspberry Pi into a **retro television** for your kids.
+**Turn a Raspberry Pi into a retro TV for your kids.**
 
-NostalgiaBox plays folders of old children's shows off an SD card as if they
-were TV **channels**. Flip to a channel and a random episode is already playing;
-when it ends, the next one rolls automatically on an endless shuffle. Changing
-channels flashes a channel banner (with an optional glitch/static effect), there's an
-on-screen **volume bar**, and empty channels show **colour bars / "no signal"** —
-all the little touches that make it feel like the TV you grew up with, driven
-entirely from a remote control.
+NostalgiaBox plays folders of old children's shows off an SD card as if they were
+real TV **channels**. Flip to a channel and a show is already playing (starting a
+few seconds in, like you just tuned in); when an episode ends, the next one rolls
+automatically on an endless shuffle. It boots straight to the TV on power-up, is
+driven by a simple remote, sends audio over HDMI, and has an authentic
+early-2000s vibe — a green on-screen channel banner and volume bar, and a curved
+"CRT" picture. No menus, no apps, no touchscreens. Just a remote and channels.
 
-> Built for a "nostalgia box": a Raspberry Pi 4 wired to a TV, seasons of old
-> shows on a micro SD card, and a remote in little hands.
+This guide has two parts:
 
----
-
-## Features
-
-- **Fixed channels, one per show.** Each channel is just a folder of episodes.
-- **Endless randomized shuffle.** A *shuffle bag* plays every episode once before
-  repeating any, and never plays the same one twice in a row — no schedule to
-  keep, no menus to navigate.
-- **Tune-in that feels like TV.** Choose how channels behave when you switch to
-  them: start a fresh random episode (`random`, the default), pick up where you
-  left off (`resume`), or run like a real always-on station you tune into
-  mid-episode (`broadcast`).
-- **Authentic on-screen display.** Channel banner ("CH 03 — DRAGON TALES"),
-  segmented volume bar, mute indicator, and an optional glitch/static burst on channel change.
-- **Colour-bars "no signal"** screen for empty channels and standby.
-- **Works with the remote you have.** USB/IR remotes and keyboards (via Linux
-  `evdev`) *and* the TV's own remote over **HDMI-CEC**, at the same time.
-- **Boots straight into TV mode** via a systemd service — no desktop required.
-- **Drop-in media loading.** Point it at a folder and every sub-folder becomes a
-  channel automatically.
+1. [**The hardware you'll need**](#1-hardware)
+2. [**Step-by-step setup**](#2-step-by-step-setup) — the SD card, the terminal, and the programming
 
 ---
 
-## Hardware
+## 1. Hardware
 
-- Raspberry Pi 4 Model B (what this is tuned for; a Pi 3 works too).
-- micro SD card with Raspberry Pi OS **and** your shows (or a second USB/SD for
-  media).
-- HDMI cable to the TV.
-- A remote, any of:
-  - a **USB or IR "media remote"** (shows up as a keyboard), or
-  - the **TV's own remote** if your TV supports HDMI-CEC (Anynet+, SimpLink,
-    BRAVIA Sync, etc.), or
-  - a plain **USB keyboard** (great for setup).
+Everything you need to build one:
+
+| Part | Link | What it's for |
+|------|------|---------------|
+| **Raspberry Pi 4 Model B** | https://amzn.to/4w6HcSC | The "brain" of the box (2GB RAM or more is plenty) |
+| **Flirc USB Remote Adapter** | https://amzn.to/4h7hZ5O | Plugs into the Pi and lets **any** remote control it |
+| **Simple TV Remote** | https://amzn.to/4wId7bZ | The big-button remote your kids will actually use |
+| **Micro-HDMI → Full HDMI cable** | https://amzn.to/4pn1TXS | Connects the Pi to the TV (the Pi 4 uses micro-HDMI) |
+| **Raspberry Pi 4 case** | https://amzn.to/4fg4RJ5 | Housing so it looks tidy next to the TV |
+
+**You'll also need (you may already have these):**
+
+- A **micro SD card**, 32 GB or larger. Bigger = more shows. (This holds the
+  operating system *and* your video files.)
+- A **USB-C power supply** for the Pi 4 (the official 3A one is recommended).
+- A **TV with an HDMI port**.
+- A **computer** (Mac or Windows) to set up the SD card and program the remote.
+- Your **show video files** (e.g. `.mp4`/`.mkv` episodes you own).
 
 ---
 
-## Quick start
+## 2. Step-by-step setup
 
-On the Raspberry Pi:
+Take it one part at a time. You do the first two parts on your **computer**, then
+the rest by connecting to the Pi.
+
+### Part A — Prepare the SD card
+
+1. On your computer, install the **Raspberry Pi Imager** from
+   [raspberrypi.com/software](https://www.raspberrypi.com/software/).
+2. Put the micro SD card into your computer.
+3. Open Raspberry Pi Imager and choose:
+   - **Device:** Raspberry Pi 4
+   - **Operating System:** *Raspberry Pi OS Lite (64-bit)* (under "Raspberry Pi
+     OS (other)"). "Lite" has no desktop — perfect, since the box boots straight
+     to the TV.
+   - **Storage:** your SD card
+4. Click **Next → Edit Settings** (the gear/⚙ customization step) and set:
+   - **Hostname:** `nostalgiabox`
+   - **Enable SSH** → "Use password authentication"
+   - **Username & password** (remember these!)
+   - **Wi-Fi** name and password (needed once, for the initial download)
+5. Write it, then eject the card.
+
+### Part B — Assemble and power on
+
+1. Put the Pi in its case.
+2. Plug the **Flirc** adapter into a USB port on the Pi.
+3. Connect the **micro-HDMI → HDMI** cable from the Pi to your TV.
+4. Insert the SD card.
+5. Plug in power. Wait ~1 minute for it to boot.
+
+### Part C — Open the terminal and connect to the Pi
+
+You'll control the Pi from your computer over the network (SSH).
+
+- **Mac:** open the **Terminal** app.
+- **Windows:** open **PowerShell**.
+
+Then connect (use the username you set; hostname is `nostalgiabox`):
 
 ```bash
-git clone <this-repo> nostalgiabox
-cd nostalgiabox
-
-# Installs mpv/libmpv, ffmpeg, cec-utils and the Python package, then
-# generates the static/colour-bar clips.
-./scripts/install.sh
-
-# Tell it where your shows are (see "Loading media" below), then check it:
-nano config.yaml
-nostalgiabox --check
-
-# Try it out:
-nostalgiabox
-
-# Happy with it? Make it boot straight into TV mode:
-./scripts/install.sh --service
+ssh pi@nostalgiabox.local
 ```
 
----
+- The first time, type `yes` to accept.
+- Enter your password (the screen stays blank while you type — that's normal).
 
-## Loading media
+You're "inside" the Pi when the prompt changes to something like
+`pi@nostalgiabox:~ $`.
 
-Put each show in its own folder. Any common video format works
-(`.mp4`, `.mkv`, `.avi`, `.m4v`, `.mov`, …). Season sub-folders are fine — they
-are scanned recursively.
+> If `nostalgiabox.local` doesn't resolve, find the Pi's IP address from your
+> router and use `ssh pi@THAT.IP.ADDRESS` instead.
+
+### Part D — Install NostalgiaBox
+
+Install git (if needed), download the project, and run the installer:
+
+```bash
+sudo apt update
+sudo apt install -y git
+git clone https://github.com/landonbtw/NostalgiaBox.git
+cd NostalgiaBox
+./scripts/install.sh
+```
+
+The installer sets up everything: the media player (mpv), video tools (ffmpeg),
+the retro font, and all dependencies. It takes a few minutes. Say `y` if it asks
+to continue. It's done when you see **"==> Done!"**.
+
+### Part E — Load your shows
+
+Put each show in its **own folder**, one folder per channel. For example, on a
+USB drive or copied onto the Pi:
 
 ```
 /media/nostalgiabox/
@@ -87,20 +120,25 @@ are scanned recursively.
 │   ├── S01E01.mp4
 │   └── S01E02.mp4
 ├── Arthur/
-│   └── ...
-└── Rugrats/
-    └── ...
+└── The Magic School Bus/
 ```
 
-Then either **let it auto-discover** the channels:
+The easiest way to get files onto the Pi is a **USB drive**: create the show
+folders on it from your computer, copy your episodes in, plug it into the Pi, and
+copy them over (ask for the exact copy commands if you need them). Any common
+video format works (`.mp4`, `.mkv`, `.avi`, `.m4v`, …), and season sub-folders
+are fine.
 
-```yaml
-# config.yaml
-media_root: /media/nostalgiabox
+### Part F — Set up your channels
+
+Open the config file and point the channels at your show folders:
+
+```bash
+nano config.yaml
 ```
 
-…which turns each folder into a channel (numbered from 2, alphabetical), or
-**list them yourself** for full control over numbers and names:
+A minimal example (see [`config.example.yaml`](config.example.yaml) for every
+option):
 
 ```yaml
 channels:
@@ -110,192 +148,203 @@ channels:
   - number: 3
     name: "Arthur"
     path: /media/nostalgiabox/arthur
+
+tune_in: random          # a random episode starts when you flip to a channel
+start_offset: [6, 10]    # begin each show 6-10 seconds in (skips the intro)
 ```
 
-See [`config.example.yaml`](config.example.yaml) for every option. Validate any
-time with `nostalgiabox --check`, which lists your channels and episode counts.
+Save in nano with **Ctrl+O**, Enter, then exit with **Ctrl+X**. Check it:
 
-### Leaving out episodes
+```bash
+nostalgiabox --check
+```
 
-Per channel you can drop content you don't want to air:
+This lists your channels and how many episodes it found in each. (You can also
+leave out specific seasons/specials per channel — see `exclude_seasons` and
+`exclude` in the example config.)
+
+### Part G — Program the remote (Flirc)
+
+The **Flirc** adapter learns your Simple TV Remote and turns its buttons into
+keys NostalgiaBox understands. Do this **on your computer**:
+
+1. Unplug the Flirc from the Pi and plug it into your computer.
+2. Install the **Flirc** app from [flirc.tv/downloads](https://flirc.tv/pages/downloads).
+3. In the app, choose the **Full Keyboard** controller.
+4. Click a key on the on-screen keyboard, then press the button on your Simple TV
+   Remote you want to use for it. Map these:
+
+   | Click this on-screen key | Press this remote button | Does |
+   |--------------------------|--------------------------|------|
+   | **Up arrow (↑)**   | Channel-Up button   | Channel up |
+   | **Down arrow (↓)** | Channel-Down button | Channel down |
+   | **Right arrow (→)**| Volume-Up button    | Volume up |
+   | **Left arrow (←)** | Volume-Down button  | Volume down |
+   | **m**              | Mute button         | Mute |
+   | **p**              | Power button        | Standby (blank the screen) |
+
+5. Unplug the Flirc from your computer and plug it back into the Pi.
+
+That's it — no config changes needed; these keys work out of the box. (Advanced:
+you can remap any key via `key_overrides` in the config — see the example.)
+
+### Part H — Get audio out the TV (HDMI)
+
+The Pi sometimes sends audio to its headphone jack by default. To force it out
+HDMI, find your HDMI audio device:
+
+```bash
+nostalgiabox --list-audio
+```
+
+Look for the **HDMI** entry (e.g. `alsa/hdmi:CARD=vc4hdmi0,DEV=0`). The Pi 4 has
+two HDMI ports: the one nearest the USB-C power is `vc4hdmi0`, the other is
+`vc4hdmi1`. Put the matching name in `config.yaml`:
 
 ```yaml
-  - number: 3
-    name: "Arthur"
-    path: /media/nostalgiabox/arthur
-    exclude_seasons: ["6-25"]   # or a list like [6, 7, 8]
-    exclude: ["*special*"]      # case-insensitive glob(s) on the path/filename
+audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"   # use vc4hdmi1 if on the 2nd port
 ```
 
-`exclude_seasons` detects the season number from names like `S06E01`, `Season 6`,
-or `6x01`. `exclude` drops anything whose path matches a glob. Run
-`nostalgiabox --check` to confirm the resulting episode count.
+### Part I — Make it boot to TV on power-up
+
+Test it first:
+
+```bash
+nostalgiabox
+```
+
+Your shows should appear on the TV and respond to the remote. Press `q` on a
+keyboard (or `Ctrl+C` in SSH) to stop. Happy with it? Turn on auto-start:
+
+```bash
+./scripts/install.sh --service
+```
+
+Now the box boots straight to TV whenever it gets power — no login, no menus.
+
+### Part J — Make it kid-proof (recommended)
+
+Kids will unplug it. Two things keep the SD card from getting corrupted:
+
+- **Turn it off with the remote:** turn the volume all the way down to 0, then
+  press volume-down **once more** — the Pi shuts down cleanly ("GOODBYE"), and
+  it's safe to unplug once the green light stops blinking.
+- **Read-only mode (belt-and-suspenders):** run `sudo raspi-config` →
+  **Performance Options → Overlay File System → Enable** (and write-protect the
+  boot partition). This makes the SD read-only, so pulling the plug can *never*
+  corrupt it. (To update later, disable the overlay, update, then re-enable it.)
+
+**Done!** Plug it in and enjoy your nostalgia box.
 
 ---
 
-## Remote control
+## Using it day to day
 
-Actions are mapped generously so almost any remote works. The main buttons:
+| Do this | On the remote |
+|---------|---------------|
+| Change channels | Channel up / down |
+| Adjust volume | Volume up / down |
+| Mute | Mute |
+| Standby (blank screen) | Power |
+| **Turn off** (safe to unplug) | Volume-down again when already at 0 |
 
-| Do this                | Remote / TV remote (CEC)        | USB keyboard          |
-|------------------------|---------------------------------|-----------------------|
-| Channel up / down      | CH+ / CH− , or ▲ / ▼            | ↑ / ↓ , PgUp / PgDn   |
-| Volume up / down       | VOL+ / VOL− , or ► / ◄          | → / ← , `+` / `-`     |
-| Mute                   | Mute                            | `m`                   |
-| Go to channel number   | digits `0`–`9`, then **OK**     | digits, then Enter    |
-| Info banner            | Info / Guide                    | `i`                   |
-| Last channel           | Prev / Back / Exit              | `l` (or Back key)     |
-| Power / standby        | Power                           | `p`                   |
-| Clean shutdown         | Volume− again at 0              | ← again at 0          |
-| Quit the app           | —                               | `q` / Esc             |
+Turn it on by plugging in power; it boots back to a channel automatically.
 
-Turning the volume all the way down to 0 and pressing volume-down **once more**
-cleanly powers the Pi off, so it's safe to unplug (configurable via
-`power_off_on_min_volume`).
+---
 
-Direct entry: type a channel number and it tunes after a short pause (or press
-OK/Enter immediately). If the channel doesn't exist you get a brief "NO CHANNEL"
-message.
+## Updating later
 
-### Remapping buttons (odd remotes)
+If a newer version is released:
 
-Any remote that shows up as a keyboard can be remapped in `config.yaml`. Find a
-button's key name with `sudo evtest`, then map it to an action:
-
-```yaml
-input:
-  key_overrides:
-    KEY_PAGEUP: channel_up      # e.g. a presenter remote's back button
-    KEY_PAGEDOWN: channel_down
-    KEY_F5: volume_up
-    KEY_DOT: volume_down
+```bash
+cd ~/NostalgiaBox
+git pull
+sudo systemctl restart nostalgiabox
 ```
 
-Actions: `channel_up`, `channel_down`, `volume_up`, `volume_down`, `mute`,
-`enter`, `info`, `last_channel`, `power`, `quit`, `digit_0`..`digit_9`, or `none`
-to unbind. Overrides win over the built-in defaults; `nostalgiabox --check`
-validates them.
+(If you enabled the read-only overlay in Part J, turn it off first via
+`raspi-config`, update, then turn it back on.)
 
 ---
 
 ## Configuration reference (highlights)
 
+All settings live in `config.yaml`:
+
 ```yaml
 tune_in: random          # random | resume | broadcast
 start_channel: 2         # channel to power on to
-start_offset: [6, 10]    # start each episode a random 6-10s in (or a single number)
+start_offset: [6, 10]    # start each episode a random 6-10s in (or a fixed number)
 transition: none         # channel-change effect: none | glitch | static
-transition_duration: 0.4
-bridge_seconds: 0.8      # keep the current show playing while the next channel loads
+bridge_seconds: 0.8      # keep the current show playing while the next loads
 channel_bug_seconds: 4   # how long the channel banner lingers
-initial_volume: 70       # 0–100
-volume_step: 5
-scan_recursive: true
+initial_volume: 70       # 0-100
+audio_device: "..."      # force HDMI audio (see Part H)
 
-input:
-  keyboard: true         # USB/IR remotes & keyboards (evdev)
-  cec: true              # TV remote over HDMI-CEC
-  stdin: false           # developer keyboard (terminal)
+ui:                      # the green on-screen display
+  color: "#4DFF5A"
+  glow: true
+crt:                     # the CRT picture effect (curve, rounding, scanlines)
+  enabled: true
+  curvature: 0.12
 ```
 
-Everything is optional except the channels themselves. Unavailable input
-backends are skipped automatically, so the same config works on the Pi and on a
-laptop.
-
-### Retro look: the green OSD and the CRT effect
-
-The on-screen readouts (channel banner, volume bar, messages) are drawn in a
-phosphor-green retro terminal font (**VT323**, bundled, installed by the
-setup script). And because these shows were made for 4:3 tube TVs, an optional
-GLSL **CRT effect** bends the picture like a real CRT — a gentle bulge, rounded
-corners, a vignette, and faint scanlines:
+Leaving out episodes per channel:
 
 ```yaml
-ui:
-  font: "VT323"          # any installed font family name
-  color: "#4DFF5A"       # phosphor green
-  glow: true             # soft CRT bloom around the text
-
-crt:
-  enabled: true          # set false if the Pi struggles or you prefer flat
-  curvature: 0.10        # 0 = flat, ~0.2 = strongly bulged
-  corner_radius: 0.045
-  vignette: 0.22
-  scanlines: true
-  scanline_intensity: 0.12
+  - number: 3
+    name: "Arthur"
+    path: /media/nostalgiabox/arthur
+    exclude_seasons: ["6-25"]   # only air seasons 1-5
+    exclude: ["*special*"]      # skip the specials
 ```
 
-The CRT effect is a cosmetic shader: if it ever fails to compile on a given GPU,
-mpv just logs it and keeps playing. Toggle it live by editing `crt.enabled` and
-restarting the service. 4:3 shows are always pillar-boxed (never stretched)
-inside the frame.
-
----
-
-## Running it as an appliance
-
-`./scripts/install.sh --service` installs a systemd unit that renders straight
-to the TV over the console (KMS/DRM — no desktop). Useful commands:
-
-```bash
-systemctl status nostalgiabox      # is it running?
-journalctl -u nostalgiabox -f      # live logs
-sudo systemctl restart nostalgiabox
-sudo systemctl disable nostalgiabox  # stop starting on boot
-```
-
----
-
-## Developing / testing (no Pi required)
-
-The interesting logic (channel scanning, shuffle, the whole state machine) is
-pure Python and has no hardware dependencies, so you can run it anywhere:
-
-```bash
-pip install -e .[dev]
-pytest                     # full test suite
-
-# Drive the app from your terminal with a mock player (no video, no libmpv):
-python -m nostalgiabox --dry-run --config config.yaml
-# arrows = channel/volume, digits = channel, m = mute, i = info, q = quit
-```
-
-### How it's put together
-
-```
-nostalgiabox/
-├── config.py      # YAML -> validated Config / ChannelConfig
-├── playlist.py    # ShuffleBag: shuffle, once each, then reshuffle
-├── channel.py     # scan folders, tune-in modes, channel navigation
-├── probe.py       # optional ffprobe duration lookup (broadcast mode)
-├── player.py      # Player interface: MpvPlayer (libmpv) + MockPlayer (tests)
-├── overlay.py     # ASS overlays: channel banner, volume bar, standby
-├── input/         # remote input: evdev keyboard, HDMI-CEC, stdin, keymap
-├── static_gen.py  # ffmpeg-generated static & colour-bar clips
-├── app.py         # TVApp: the state machine tying it all together
-└── __main__.py    # the `nostalgiabox` CLI
-```
-
-The `Player` and input backends are the only hardware-facing parts; both have
-test doubles, so the entire behaviour is exercised without a screen or media.
+Validate any changes with `nostalgiabox --check`.
 
 ---
 
 ## Troubleshooting
 
-- **`nostalgiabox --check` shows a channel with 0 episodes.** The folder path is
-  wrong or the files use an extension not in `video_extensions`.
-- **No video on the Pi.** Ensure `mpv`/`libmpv2` are installed (the installer
-  does this) and that the service has the `video`/`render` groups (it does by
-  default). Check `journalctl -u nostalgiabox`.
-- **TV remote does nothing.** Enable HDMI-CEC on the TV (Anynet+/SimpLink/etc.)
-  and confirm `cec-client` sees key presses. USB/IR remotes need read access to
-  `/dev/input/*` (the service runs in the `input` group).
-- **Static clip missing.** Run `nostalgiabox --generate-assets` (needs ffmpeg).
-  Without it, channel changes simply skip the snow — everything else still works.
+- **`--check` shows 0 episodes for a channel** → the `path` is wrong, or the
+  files use an extension not in `video_extensions`.
+- **No video on the TV** → make sure the HDMI cable is in the right Pi port and
+  the TV is on that input. Check logs with `journalctl -u nostalgiabox -f`.
+- **No sound** → see Part H; try switching `vc4hdmi0` ↔ `vc4hdmi1`, or the
+  `alsa/plughw:CARD=...` variant.
+- **Remote does nothing** → confirm the Flirc is plugged into the Pi and was
+  programmed (Part G). Restart the box after plugging it in.
+- **It won't boot / config errors after a power cut** → the SD got corrupted from
+  an unclean shutdown. Enable the read-only overlay (Part J) to prevent it.
 
 ---
 
+## For the curious (how it works)
+
+The project is plain Python. The "brains" (channel scanning, the shuffle, the
+state machine) have no hardware dependencies and are fully unit-tested; the
+hardware-facing parts (the mpv video player and the remote input) are isolated
+behind small interfaces. You can even drive the whole thing on a laptop with a
+mock player:
+
+```bash
+pip install -e ".[dev]"
+pytest
+python -m nostalgiabox --dry-run --config config.yaml   # keyboard-controlled, no video
+```
+
+```
+nostalgiabox/
+├── config.py      YAML -> validated config
+├── playlist.py    the shuffle bag (each episode once, then reshuffle)
+├── channel.py     folder scanning, tune-in modes, channel navigation
+├── player.py      mpv player (+ a mock for tests)
+├── overlay.py     the green on-screen display
+├── crt.py         the CRT shader
+├── input/         remote input (Flirc/keyboard, HDMI-CEC, keymap)
+├── static_gen.py  ffmpeg-generated static/glitch/colour-bar clips
+└── app.py         the TV state machine
+```
+
 ## License
 
-MIT — see [`pyproject.toml`](pyproject.toml). Enjoy your nostalgia box!
+MIT. Enjoy your nostalgia box!
