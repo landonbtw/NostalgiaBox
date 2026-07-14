@@ -110,6 +110,7 @@ class TVApp:
                     glsl_shaders=str(shader_path) if shader_path else None,
                     fonts_dir=assets / "fonts",
                     force_4_3=config.force_4_3,
+                    audio_device=config.audio_device,
                 )
 
         if input_manager is None:

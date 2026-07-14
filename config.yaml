@@ -34,6 +34,10 @@ transition: none          # no glitch/static on channel change
 
 initial_volume: 70
 volume_step: 5
+# Send audio out HDMI (not the 3.5mm jack). If there's no sound, run
+#   nostalgiabox --list-audio
+# and set this to the HDMI device it prints (HDMI1 uses vc4hdmi1).
+audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
 
 input:
   keyboard: true

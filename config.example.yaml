@@ -104,6 +104,9 @@ crt:
 # --- Audio -------------------------------------------------------------------
 initial_volume: 70        # 0-100
 volume_step: 5            # how much each volume press changes it
+# Force audio to a specific output. On a Pi the default can be the 3.5mm jack;
+# for a TV you want HDMI. Run `nostalgiabox --list-audio` to see the names.
+# audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"   # HDMI0 (use vc4hdmi1 for HDMI1)
 
 # --- Playback ----------------------------------------------------------------
 scan_recursive: true      # also look inside season sub-folders for episodes

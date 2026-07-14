@@ -101,6 +101,7 @@ class MpvPlayer(Player):
         glsl_shaders: Optional[str] = None,
         fonts_dir: Optional[Path] = None,
         force_4_3: bool = True,
+        audio_device: Optional[str] = None,
         extra_options: Optional[dict] = None,
     ) -> None:
         try:
@@ -153,6 +154,10 @@ class MpvPlayer(Player):
             # A pleasant, readable OSD font size relative to the window.
             osd_font_size=40,
         )
+        if audio_device:
+            # Force audio to a specific output (e.g. HDMI) instead of mpv's
+            # default (which can pick the 3.5mm jack on a Raspberry Pi).
+            options["audio_device"] = audio_device
         if glsl_shaders:
             # CRT curvature/rounding/vignette/scanlines. Applied globally (always
             # on) so a newly-loaded episode is never shown for a frame or two

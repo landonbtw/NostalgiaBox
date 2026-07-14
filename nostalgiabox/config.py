@@ -112,6 +112,7 @@ class Config:
     # Audio.
     initial_volume: int = 70              # 0-100
     volume_step: int = 5
+    audio_device: Optional[str] = None    # mpv audio device (e.g. HDMI); None = auto
 
     # Playback.
     scan_recursive: bool = True           # look in sub-folders for episodes
@@ -285,6 +286,8 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
 
     initial_volume = _clamp_int(data.get("initial_volume", 70), 0, 100, "initial_volume")
     volume_step = _clamp_int(data.get("volume_step", 5), 1, 100, "volume_step")
+    audio_device = data.get("audio_device")
+    audio_device = str(audio_device) if audio_device else None
 
     return Config(
         channels=channels,
@@ -302,6 +305,7 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         crt=_parse_crt(data.get("crt")),
         initial_volume=initial_volume,
         volume_step=volume_step,
+        audio_device=audio_device,
         scan_recursive=bool(data.get("scan_recursive", True)),
         shuffle_seed=(int(data["shuffle_seed"]) if data.get("shuffle_seed") is not None else None),
         assets_dir=assets_dir,

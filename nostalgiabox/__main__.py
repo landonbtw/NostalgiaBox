@@ -61,6 +61,30 @@ def _cmd_check(config: Config) -> int:
     return 0 if total > 0 else 1
 
 
+def _list_audio_devices() -> int:
+    """Print mpv's available audio output devices, one 'name  -  description' per line."""
+    try:
+        import mpv  # type: ignore
+    except ImportError:
+        print("python-mpv/libmpv not installed; on the Pi try: mpv --audio-device=help")
+        return 1
+    try:
+        player = mpv.MPV(vo="null", idle=True)
+        devices = player.audio_device_list or []
+        print("Available audio devices (use the 'name' in config.yaml -> audio_device):\n")
+        for dev in devices:
+            name = dev.get("name", "?")
+            desc = dev.get("description", "")
+            print(f"  {name}\n      {desc}")
+        print("\nFor a TV, pick the HDMI one, e.g. audio_device: \"alsa/hdmi:CARD=vc4hdmi0,DEV=0\"")
+        player.terminate()
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"could not list audio devices via libmpv ({exc}).")
+        print("Try on the Pi instead: mpv --audio-device=help")
+        return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="nostalgiabox",
@@ -83,6 +107,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="generate the static/colour-bars filler clips and exit",
     )
     parser.add_argument(
+        "--list-audio",
+        action="store_true",
+        help="list available audio output devices (for the 'audio_device' setting) and exit",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -101,6 +130,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .static_gen import DEFAULT_ASSETS_DIR, main as gen_main
 
         return gen_main(["--assets-dir", str(DEFAULT_ASSETS_DIR)])
+
+    if args.list_audio:
+        return _list_audio_devices()
 
     try:
         config_path = _find_config(args.config)
