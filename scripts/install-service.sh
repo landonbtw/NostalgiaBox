@@ -31,6 +31,13 @@ echo "==> Installing ${TARGET}"
 sudo cp "${tmp}" "${TARGET}"
 rm -f "${tmp}"
 
+echo "==> Allowing '${RUN_USER}' to power off without a password (for the"
+echo "    volume-down-past-zero shutdown)"
+sudo tee /etc/sudoers.d/nostalgiabox-poweroff > /dev/null <<EOF
+${RUN_USER} ALL=(root) NOPASSWD: /sbin/poweroff, /usr/sbin/poweroff, /sbin/shutdown, /usr/sbin/shutdown, /usr/bin/systemctl poweroff
+EOF
+sudo chmod 440 /etc/sudoers.d/nostalgiabox-poweroff
+
 echo "==> Enabling and starting the service"
 sudo systemctl daemon-reload
 sudo systemctl enable nostalgiabox.service

@@ -15,6 +15,7 @@ def build_app(tmp_path, *, assets_dir=None, **overrides):
         "shuffle_seed": 7,
         "start_channel": 2,
         "start_offset": 0,  # keep test assertions on start=0 unless overridden
+        "power_off_command": [],  # no-op in tests (never actually shut down)
         "channels": [
             {"number": 2, "name": "Dragon Tales", "path": str(tmp_path / "dragon")},
             {"number": 3, "name": "Arthur", "path": str(tmp_path / "arthur")},
@@ -80,6 +81,27 @@ def test_volume_clamps(tmp_path):
     for _ in range(30):
         send(app, Action.VOLUME_DOWN)
     assert app.volume == 0
+
+
+def test_volume_down_at_zero_powers_off(tmp_path):
+    app, player, _ = build_app(tmp_path, initial_volume=10, volume_step=5)
+    app.start()
+    send(app, Action.VOLUME_DOWN)   # 10 -> 5
+    send(app, Action.VOLUME_DOWN)   # 5 -> 0
+    assert app.volume == 0 and not app.powered_off
+    send(app, Action.VOLUME_DOWN)   # one more at 0 -> power off
+    assert app.powered_off is True
+    assert app._running is False
+    assert player.current is None   # playback stopped
+
+
+def test_power_off_disabled(tmp_path):
+    app, player, _ = build_app(
+        tmp_path, initial_volume=0, power_off_on_min_volume=False
+    )
+    app.start()
+    send(app, Action.VOLUME_DOWN)   # at 0, but feature disabled
+    assert app.powered_off is False
 
 
 def test_mute_toggle_and_unmute_on_volume(tmp_path):

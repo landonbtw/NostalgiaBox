@@ -40,6 +40,9 @@ volume_step: 5
 # one next to the 3.5mm jack), which is vc4hdmi1. If sound ever moves, run
 # `nostalgiabox --list-audio` and update this.
 audio_device: "alsa/hdmi:CARD=vc4hdmi1,DEV=0"
+# Press volume-down once more when already at 0 to cleanly power off (safe to
+# unplug). Needs the passwordless-sudo rule that scripts/install-service.sh adds.
+power_off_on_min_volume: true
 
 input:
   keyboard: true

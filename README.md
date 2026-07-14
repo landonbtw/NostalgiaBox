@@ -146,7 +146,12 @@ Actions are mapped generously so almost any remote works. The main buttons:
 | Info banner            | Info / Guide                    | `i`                   |
 | Last channel           | Prev / Back / Exit              | `l` (or Back key)     |
 | Power / standby        | Power                           | `p`                   |
+| Clean shutdown         | Volume− again at 0              | ← again at 0          |
 | Quit the app           | —                               | `q` / Esc             |
+
+Turning the volume all the way down to 0 and pressing volume-down **once more**
+cleanly powers the Pi off, so it's safe to unplug (configurable via
+`power_off_on_min_volume`).
 
 Direct entry: type a channel number and it tunes after a short pause (or press
 OK/Enter immediately). If the channel doesn't exist you get a brief "NO CHANNEL"

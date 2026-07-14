@@ -117,6 +117,10 @@ class Config:
     initial_volume: int = 70              # 0-100
     volume_step: int = 5
     audio_device: Optional[str] = None    # mpv audio device (e.g. HDMI); None = auto
+    # Press volume-down once more when already at 0 to cleanly power off the Pi
+    # (so it's safe to unplug). The command run to shut down:
+    power_off_on_min_volume: bool = True
+    power_off_command: tuple[str, ...] = ("sudo", "poweroff")
 
     # Playback.
     scan_recursive: bool = True           # look in sub-folders for episodes
@@ -293,6 +297,14 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
     audio_device = data.get("audio_device")
     audio_device = str(audio_device) if audio_device else None
 
+    poff_raw = data.get("power_off_command", ["sudo", "poweroff"])
+    if isinstance(poff_raw, str):
+        power_off_command = tuple(poff_raw.split())
+    elif isinstance(poff_raw, list):
+        power_off_command = tuple(str(x) for x in poff_raw)
+    else:
+        raise ConfigError("'power_off_command' must be a string or list of strings")
+
     return Config(
         channels=channels,
         video_extensions=extensions,
@@ -311,6 +323,8 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         initial_volume=initial_volume,
         volume_step=volume_step,
         audio_device=audio_device,
+        power_off_on_min_volume=bool(data.get("power_off_on_min_volume", True)),
+        power_off_command=power_off_command,
         scan_recursive=bool(data.get("scan_recursive", True)),
         shuffle_seed=(int(data["shuffle_seed"]) if data.get("shuffle_seed") is not None else None),
         assets_dir=assets_dir,

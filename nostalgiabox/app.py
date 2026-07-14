@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import subprocess
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -61,6 +62,7 @@ class TVApp:
         self.volume = config.initial_volume
         self.muted = False
         self.standby = False
+        self.powered_off = False
         self._playing_path: Optional[Path] = None
         self._last_channel_number: Optional[int] = None
         self._running = False
@@ -320,6 +322,10 @@ class TVApp:
         self._set_volume(self.volume + self.config.volume_step, unmute=True)
 
     def _volume_down(self) -> None:
+        # One press below zero cleanly powers off the box (safe to unplug).
+        if self.config.power_off_on_min_volume and not self.muted and self.volume <= 0:
+            self._power_off()
+            return
         self._set_volume(self.volume - self.config.volume_step, unmute=True)
 
     def _set_volume(self, value: int, *, unmute: bool = False) -> None:
@@ -329,6 +335,30 @@ class TVApp:
             self.player.set_mute(False)
         self.player.set_volume(self.volume)
         self.overlay.show_volume(self.volume, self.muted)
+
+    def _power_off(self) -> None:
+        """Cleanly shut the Pi down so it's safe to unplug."""
+        log.info("powering off (volume floor)")
+        self.powered_off = True
+        self._switch_deadline = None
+        self._pending_banner = None
+        try:
+            self.overlay.clear_all()
+            self.overlay.show_message("GOODBYE", duration=0)
+            self.player.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        self._run_power_off_command()
+        self._running = False  # exit the main loop
+
+    def _run_power_off_command(self) -> None:
+        command = list(self.config.power_off_command)
+        if not command:
+            return  # disabled / test mode
+        try:
+            subprocess.Popen(command)
+        except Exception:  # noqa: BLE001
+            log.exception("power-off command failed: %s", command)
 
     def _toggle_mute(self) -> None:
         self.muted = not self.muted

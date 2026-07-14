@@ -113,6 +113,11 @@ volume_step: 5            # how much each volume press changes it
 # for a TV you want HDMI. Run `nostalgiabox --list-audio` to see the names.
 # audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"   # HDMI0 (use vc4hdmi1 for HDMI1)
 
+# Pressing volume-down once more when already at 0 cleanly powers off the Pi so
+# it's safe to unplug (needs the sudo rule from scripts/install-service.sh).
+power_off_on_min_volume: true
+# power_off_command: ["sudo", "poweroff"]   # override the shutdown command
+
 # --- Playback ----------------------------------------------------------------
 scan_recursive: true      # also look inside season sub-folders for episodes
 # video_extensions: [".mp4", ".mkv", ".avi", ".m4v"]   # override if needed
