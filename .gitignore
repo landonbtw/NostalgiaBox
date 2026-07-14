@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# NostalgiaBox
+# The user's real configuration (they copy config.example.yaml -> config.yaml).
+config.yaml
+# Generated filler clips (created by `nostalgiabox --generate-assets`).
+nostalgiabox/assets/*.mp4
+
+# OS cruft
+.DS_Store
+Thumbs.db

@@ -1,1 +1,231 @@
 # NostalgiaBox
+
+Turn a Raspberry Pi into a **retro television** for your kids.
+
+NostalgiaBox plays folders of old children's shows off an SD card as if they
+were TV **channels**. Flip to a channel and a random episode is already playing;
+when it ends, the next one rolls automatically on an endless shuffle. Changing
+channels flashes a channel banner and a burst of analog **static**, there's an
+on-screen **volume bar**, and empty channels show **colour bars / "no signal"** —
+all the little touches that make it feel like the TV you grew up with, driven
+entirely from a remote control.
+
+> Built for a "nostalgia box": a Raspberry Pi 4 wired to a TV, seasons of old
+> shows on a micro SD card, and a remote in little hands.
+
+---
+
+## Features
+
+- **Fixed channels, one per show.** Each channel is just a folder of episodes.
+- **Endless randomized shuffle.** A *shuffle bag* plays every episode once before
+  repeating any, and never plays the same one twice in a row — no schedule to
+  keep, no menus to navigate.
+- **Tune-in that feels like TV.** Choose how channels behave when you switch to
+  them: start a fresh random episode (`random`, the default), pick up where you
+  left off (`resume`), or run like a real always-on station you tune into
+  mid-episode (`broadcast`).
+- **Authentic on-screen display.** Channel banner ("CH 03 — DRAGON TALES"),
+  segmented volume bar, mute indicator, and a static burst on channel change.
+- **Colour-bars "no signal"** screen for empty channels and standby.
+- **Works with the remote you have.** USB/IR remotes and keyboards (via Linux
+  `evdev`) *and* the TV's own remote over **HDMI-CEC**, at the same time.
+- **Boots straight into TV mode** via a systemd service — no desktop required.
+- **Drop-in media loading.** Point it at a folder and every sub-folder becomes a
+  channel automatically.
+
+---
+
+## Hardware
+
+- Raspberry Pi 4 Model B (what this is tuned for; a Pi 3 works too).
+- micro SD card with Raspberry Pi OS **and** your shows (or a second USB/SD for
+  media).
+- HDMI cable to the TV.
+- A remote, any of:
+  - a **USB or IR "media remote"** (shows up as a keyboard), or
+  - the **TV's own remote** if your TV supports HDMI-CEC (Anynet+, SimpLink,
+    BRAVIA Sync, etc.), or
+  - a plain **USB keyboard** (great for setup).
+
+---
+
+## Quick start
+
+On the Raspberry Pi:
+
+```bash
+git clone <this-repo> nostalgiabox
+cd nostalgiabox
+
+# Installs mpv/libmpv, ffmpeg, cec-utils and the Python package, then
+# generates the static/colour-bar clips.
+./scripts/install.sh
+
+# Tell it where your shows are (see "Loading media" below), then check it:
+nano config.yaml
+nostalgiabox --check
+
+# Try it out:
+nostalgiabox
+
+# Happy with it? Make it boot straight into TV mode:
+./scripts/install.sh --service
+```
+
+---
+
+## Loading media
+
+Put each show in its own folder. Any common video format works
+(`.mp4`, `.mkv`, `.avi`, `.m4v`, `.mov`, …). Season sub-folders are fine — they
+are scanned recursively.
+
+```
+/media/nostalgiabox/
+├── Dragon Tales/
+│   ├── S01E01.mp4
+│   └── S01E02.mp4
+├── Arthur/
+│   └── ...
+└── Rugrats/
+    └── ...
+```
+
+Then either **let it auto-discover** the channels:
+
+```yaml
+# config.yaml
+media_root: /media/nostalgiabox
+```
+
+…which turns each folder into a channel (numbered from 2, alphabetical), or
+**list them yourself** for full control over numbers and names:
+
+```yaml
+channels:
+  - number: 2
+    name: "Dragon Tales"
+    path: /media/nostalgiabox/dragon-tales
+  - number: 3
+    name: "Arthur"
+    path: /media/nostalgiabox/arthur
+```
+
+See [`config.example.yaml`](config.example.yaml) for every option. Validate any
+time with `nostalgiabox --check`, which lists your channels and episode counts.
+
+---
+
+## Remote control
+
+Actions are mapped generously so almost any remote works. The main buttons:
+
+| Do this                | Remote / TV remote (CEC)        | USB keyboard          |
+|------------------------|---------------------------------|-----------------------|
+| Channel up / down      | CH+ / CH− , or ▲ / ▼            | ↑ / ↓ , PgUp / PgDn   |
+| Volume up / down       | VOL+ / VOL− , or ► / ◄          | → / ← , `+` / `-`     |
+| Mute                   | Mute                            | `m`                   |
+| Go to channel number   | digits `0`–`9`, then **OK**     | digits, then Enter    |
+| Info banner            | Info / Guide                    | `i`                   |
+| Last channel           | Prev / Back / Exit              | (Back key)            |
+| Power / standby        | Power                           | `p`                   |
+| Quit the app           | —                               | `q` / Esc             |
+
+Direct entry: type a channel number and it tunes after a short pause (or press
+OK/Enter immediately). If the channel doesn't exist you get a brief "NO CHANNEL"
+message.
+
+---
+
+## Configuration reference (highlights)
+
+```yaml
+tune_in: random          # random | resume | broadcast
+start_channel: 2         # channel to power on to
+static_transition: true  # analog snow between channels
+static_duration: 0.6
+channel_bug_seconds: 4   # how long the channel banner lingers
+initial_volume: 70       # 0–100
+volume_step: 5
+scan_recursive: true
+
+input:
+  keyboard: true         # USB/IR remotes & keyboards (evdev)
+  cec: true              # TV remote over HDMI-CEC
+  stdin: false           # developer keyboard (terminal)
+```
+
+Everything is optional except the channels themselves. Unavailable input
+backends are skipped automatically, so the same config works on the Pi and on a
+laptop.
+
+---
+
+## Running it as an appliance
+
+`./scripts/install.sh --service` installs a systemd unit that renders straight
+to the TV over the console (KMS/DRM — no desktop). Useful commands:
+
+```bash
+systemctl status nostalgiabox      # is it running?
+journalctl -u nostalgiabox -f      # live logs
+sudo systemctl restart nostalgiabox
+sudo systemctl disable nostalgiabox  # stop starting on boot
+```
+
+---
+
+## Developing / testing (no Pi required)
+
+The interesting logic (channel scanning, shuffle, the whole state machine) is
+pure Python and has no hardware dependencies, so you can run it anywhere:
+
+```bash
+pip install -e .[dev]
+pytest                     # full test suite
+
+# Drive the app from your terminal with a mock player (no video, no libmpv):
+python -m nostalgiabox --dry-run --config config.yaml
+# arrows = channel/volume, digits = channel, m = mute, i = info, q = quit
+```
+
+### How it's put together
+
+```
+nostalgiabox/
+├── config.py      # YAML -> validated Config / ChannelConfig
+├── playlist.py    # ShuffleBag: shuffle, once each, then reshuffle
+├── channel.py     # scan folders, tune-in modes, channel navigation
+├── probe.py       # optional ffprobe duration lookup (broadcast mode)
+├── player.py      # Player interface: MpvPlayer (libmpv) + MockPlayer (tests)
+├── overlay.py     # ASS overlays: channel banner, volume bar, standby
+├── input/         # remote input: evdev keyboard, HDMI-CEC, stdin, keymap
+├── static_gen.py  # ffmpeg-generated static & colour-bar clips
+├── app.py         # TVApp: the state machine tying it all together
+└── __main__.py    # the `nostalgiabox` CLI
+```
+
+The `Player` and input backends are the only hardware-facing parts; both have
+test doubles, so the entire behaviour is exercised without a screen or media.
+
+---
+
+## Troubleshooting
+
+- **`nostalgiabox --check` shows a channel with 0 episodes.** The folder path is
+  wrong or the files use an extension not in `video_extensions`.
+- **No video on the Pi.** Ensure `mpv`/`libmpv2` are installed (the installer
+  does this) and that the service has the `video`/`render` groups (it does by
+  default). Check `journalctl -u nostalgiabox`.
+- **TV remote does nothing.** Enable HDMI-CEC on the TV (Anynet+/SimpLink/etc.)
+  and confirm `cec-client` sees key presses. USB/IR remotes need read access to
+  `/dev/input/*` (the service runs in the `input` group).
+- **Static clip missing.** Run `nostalgiabox --generate-assets` (needs ffmpeg).
+  Without it, channel changes simply skip the snow — everything else still works.
+
+---
+
+## License
+
+MIT — see [`pyproject.toml`](pyproject.toml). Enjoy your nostalgia box!

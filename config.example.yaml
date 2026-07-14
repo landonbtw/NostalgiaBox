@@ -1,0 +1,79 @@
+# =============================================================================
+# NostalgiaBox configuration
+# =============================================================================
+# Copy this file to `config.yaml` (or /etc/nostalgiabox/config.yaml) and edit it
+# to match the show folders on your SD card. Validate it any time with:
+#
+#     nostalgiabox --check
+#
+# There are two ways to define channels. Pick ONE.
+
+# -----------------------------------------------------------------------------
+# OPTION A (easiest): auto-discover channels from a media folder.
+# -----------------------------------------------------------------------------
+# Point `media_root` at a folder; every sub-folder becomes a channel, named
+# after the folder and numbered sequentially. Just drop show folders in and go:
+#
+#   /media/nostalgiabox/
+#     ├── Dragon Tales/     -> channel 2 "Dragon Tales"
+#     ├── Arthur/           -> channel 3 "Arthur"
+#     └── Rugrats/          -> channel 4 "Rugrats"
+#
+# media_root: /media/nostalgiabox
+# first_channel_number: 2      # what the first discovered channel is numbered
+
+# -----------------------------------------------------------------------------
+# OPTION B (explicit): list channels yourself for full control of numbers/names.
+# -----------------------------------------------------------------------------
+channels:
+  - number: 2
+    name: "Dragon Tales"
+    path: /media/nostalgiabox/dragon-tales
+  - number: 3
+    name: "Arthur"
+    path: /media/nostalgiabox/arthur
+  - number: 4
+    name: "Rugrats"
+    path: /media/nostalgiabox/rugrats
+  - number: 5
+    name: "The Magic School Bus"
+    path: /media/nostalgiabox/magic-school-bus
+
+# -----------------------------------------------------------------------------
+# How a channel behaves when you tune into it.
+#   random    - start a fresh random episode (the classic "flip and a show
+#               starts"); episodes keep rolling on shuffle after that.  [default]
+#   resume    - pick up where you left off on that channel last time.
+#   broadcast - the channel runs like a real always-on station: it advances in
+#               real time even while you're watching something else, so you tune
+#               in partway through whatever "would" be airing. (Needs ffprobe.)
+# -----------------------------------------------------------------------------
+tune_in: random
+
+start_channel: 2          # which channel the box powers on to
+
+# --- The "feel" of the TV ----------------------------------------------------
+static_transition: true   # burst of analog snow when changing channels
+static_duration: 0.6      # seconds of snow
+channel_bug_seconds: 4    # how long the channel banner lingers
+osd_duration: 2           # how long the volume bar / messages linger
+
+# --- Audio -------------------------------------------------------------------
+initial_volume: 70        # 0-100
+volume_step: 5            # how much each volume press changes it
+
+# --- Playback ----------------------------------------------------------------
+scan_recursive: true      # also look inside season sub-folders for episodes
+# video_extensions: [".mp4", ".mkv", ".avi", ".m4v"]   # override if needed
+# shuffle_seed: 1234       # set for a repeatable shuffle order (mostly for tests)
+
+# --- Remote control input ----------------------------------------------------
+# All backends are auto-detected; anything unavailable is skipped, so these are
+# only needed to turn things off or fine-tune device selection.
+input:
+  keyboard: true          # USB/IR remotes & keyboards (via Linux evdev)
+  cec: true               # the TV's own remote over HDMI-CEC (needs cec-utils)
+  stdin: false            # developer keyboard over the terminal
+  # keyboard_name_filter: "remote"   # only listen to devices whose name matches
+  # keyboard_devices: ["/dev/input/event0"]  # or pin exact devices
+  # keyboard_grab: false             # true = stop keystrokes leaking to console
