@@ -65,9 +65,6 @@ class TVApp:
         self._digit_deadline = 0.0
         self._digit_entry_timeout = 2.0
 
-        # Pending static->episode transition: (request, deadline).
-        self._pending: Optional[tuple[PlayRequest, float]] = None
-
         # Playback-finished events from the player (may arrive on any thread).
         self._ended: "queue.Queue[str]" = queue.Queue()
         self.player.on_end = self._ended.put
@@ -152,28 +149,17 @@ class TVApp:
     def step(self, *, block: bool = False, timeout: float = 0.1) -> None:
         """Advance the state machine by one iteration.
 
-        Handles overlay expiry, pending transitions, channel-entry timeouts,
-        finished episodes, and at most one queued input event.
+        Handles overlay expiry, channel-entry timeouts, finished episodes, and
+        at most one queued input event.
         """
         now = self._clock()
         self.overlay.tick()
-        self.process_pending(now)
         self._maybe_commit_digits(now)
         self._drain_playback_events()
 
         event = self.input.get(timeout=timeout if block else 0.0)
         if event is not None:
             self.handle_event(event)
-
-    def process_pending(self, now: Optional[float] = None) -> None:
-        """If a static->episode transition is due, start the real episode."""
-        if self._pending is None:
-            return
-        now = self._clock() if now is None else now
-        request, deadline = self._pending
-        if now >= deadline:
-            self._pending = None
-            self._play_request(request)
 
     # -- input handling -----------------------------------------------------
     def handle_event(self, event: InputEvent) -> None:
@@ -263,10 +249,15 @@ class TVApp:
             and self.config.static_transition
             and self._static_path is not None
         ):
-            self.player.play_loop(self._static_path)
-            self._pending = (request, self._clock() + self.config.static_duration)
+            # Static burst + preloaded episode = a near-instant channel change.
+            self._playing_path = request.path
+            self.player.play_transition(
+                self._static_path,
+                request.path,
+                start=request.start,
+                static_seconds=self.config.static_duration,
+            )
         else:
-            self._pending = None
             self._play_request(request)
 
     def _play_request(self, request: PlayRequest) -> None:
@@ -274,7 +265,6 @@ class TVApp:
         self.player.play(request.path, start=request.start)
 
     def _show_no_signal(self, channel: Channel) -> None:
-        self._pending = None
         self._playing_path = None
         if self._colorbars_path is not None:
             self.player.play_loop(self._colorbars_path)
@@ -313,7 +303,6 @@ class TVApp:
         self.standby = not self.standby
         if self.standby:
             self._remember_position()
-            self._pending = None
             self.player.stop()
             self.overlay.clear_all()
             self.overlay.show_standby()

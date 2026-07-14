@@ -166,17 +166,28 @@ def test_static_transition_then_episode(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "static.mp4").write_bytes(b"\x00")
-    app, player, clock = build_app(tmp_path, assets_dir=assets, static_duration=0.6)
+    app, player, clock = build_app(tmp_path, assets_dir=assets, static_duration=0.5)
     app.start()
     send(app, Action.CHANNEL_UP)
-    # During the transition the static clip loops and no episode is committed.
-    assert player.looping == assets / "static.mp4"
-    assert app._pending is not None
-    clock.advance(0.7)
-    app.process_pending()
-    assert app._pending is None
-    assert player.looping is None
-    assert player.current is not None  # the real episode is now playing
+    # A static->episode transition was issued (static clip + preloaded episode).
+    assert player.transitions, "expected a static transition on channel change"
+    static_path, target, _start = player.transitions[-1]
+    assert static_path == assets / "static.mp4"
+    assert player.current == target  # the episode is what plays
+
+
+def test_advance_within_channel_has_no_static(tmp_path):
+    # An episode ending should roll straight into the next one (no static burst).
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "static.mp4").write_bytes(b"\x00")
+    app, player, _ = build_app(tmp_path, assets_dir=assets)
+    app.start()
+    before = len(player.transitions)
+    player.finish_current(END_EOF)
+    app._drain_playback_events()
+    assert len(player.transitions) == before  # no new static transition
+    assert player.current is not None
 
 
 def test_empty_channel_shows_no_signal(tmp_path):

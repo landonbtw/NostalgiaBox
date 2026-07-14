@@ -42,6 +42,22 @@ class Player(ABC):
     def play_loop(self, path: Path) -> None:
         """Play ``path`` on an endless loop (used for the static/no-signal clip)."""
 
+    def play_transition(
+        self,
+        static_path: Path,
+        target_path: Path,
+        *,
+        start: float = 0.0,
+        static_seconds: float = 0.5,
+    ) -> None:
+        """Show a brief static burst, then the target episode.
+
+        The default implementation just plays the target; players that can
+        preload (see :class:`MpvPlayer`) override this to make the switch
+        near-instant.
+        """
+        self.play(target_path, start=start)
+
     @abstractmethod
     def stop(self) -> None:
         """Stop playback and show a blank screen."""
@@ -119,6 +135,11 @@ class MpvPlayer(Player):
             # be skipped or the picture to hang. "eof-reached" only ever trips on
             # a genuine end-of-file, so it is the robust signal.
             keep_open="yes",
+            # Preload the next playlist entry while the current one plays. This
+            # is what makes channel changes near-instant: during the ~0.5s of
+            # static, mpv is already opening/decoding the episode, so it appears
+            # the moment the static ends (see play_transition).
+            prefetch_playlist="yes",
             fullscreen=fullscreen,
             # Hardware decode + a sensible video output for the Pi. gpu with the
             # drm context works headless on the Pi 4; libmpv falls back sanely.
@@ -190,6 +211,34 @@ class MpvPlayer(Player):
             self._mpv.pause = False
         except Exception:  # noqa: BLE001
             log.exception("failed to loop %s", path)
+
+    def play_transition(
+        self,
+        static_path: Path,
+        target_path: Path,
+        *,
+        start: float = 0.0,
+        static_seconds: float = 0.5,
+    ) -> None:
+        # Build a 2-entry playlist: [static (cut to static_seconds), episode].
+        # mpv plays the static burst and, thanks to prefetch-playlist, has the
+        # episode ready to show the instant the static ends. keep-open=yes only
+        # holds the LAST entry, so eof-reached (which advances the channel) only
+        # ever trips for the episode - never the static.
+        self._suppress = False
+        try:
+            self._mpv.loop_file = "no"
+            self._mpv.loadfile(
+                str(static_path), "replace", end=f"{max(0.05, static_seconds):.3f}"
+            )
+            if start and start > 0:
+                self._mpv.loadfile(str(target_path), "append", start=f"+{start:.3f}")
+            else:
+                self._mpv.loadfile(str(target_path), "append")
+            self._mpv.pause = False
+        except Exception:  # noqa: BLE001
+            log.exception("failed transition to %s", target_path)
+            self.play(target_path, start=start)
 
     def stop(self) -> None:
         self._suppress = True
@@ -266,6 +315,7 @@ class MockPlayer(Player):
         self.closed = False
         # Recorded history, handy for assertions in tests.
         self.played: List[Tuple[Path, float]] = []
+        self.transitions: List[Tuple[Path, Path, float]] = []
         self.messages: List[Tuple[str, float]] = []
         self.overlays: dict[int, str] = {}
         self.stops = 0
@@ -285,6 +335,22 @@ class MockPlayer(Player):
         self.looping = path
         self.current = path
         self._log(f"LOOP {path}")
+
+    def play_transition(
+        self,
+        static_path: Path,
+        target_path: Path,
+        *,
+        start: float = 0.0,
+        static_seconds: float = 0.5,
+    ) -> None:
+        self.transitions.append((static_path, target_path, start))
+        # The episode is what ends up playing (static is momentary).
+        self.current = target_path
+        self.looping = None
+        self.time_pos = start
+        self.played.append((target_path, start))
+        self._log(f"TRANSITION static={static_path} -> {target_path} @ {start:.1f}s")
 
     def stop(self) -> None:
         self.current = None
