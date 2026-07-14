@@ -5,7 +5,7 @@ Turn a Raspberry Pi into a **retro television** for your kids.
 NostalgiaBox plays folders of old children's shows off an SD card as if they
 were TV **channels**. Flip to a channel and a random episode is already playing;
 when it ends, the next one rolls automatically on an endless shuffle. Changing
-channels flashes a channel banner and a burst of analog **static**, there's an
+channels flashes a channel banner and a brief digital **glitch**, there's an
 on-screen **volume bar**, and empty channels show **colour bars / "no signal"** —
 all the little touches that make it feel like the TV you grew up with, driven
 entirely from a remote control.
@@ -26,7 +26,7 @@ entirely from a remote control.
   left off (`resume`), or run like a real always-on station you tune into
   mid-episode (`broadcast`).
 - **Authentic on-screen display.** Channel banner ("CH 03 — DRAGON TALES"),
-  segmented volume bar, mute indicator, and a static burst on channel change.
+  segmented volume bar, mute indicator, and a glitch/static burst on channel change.
 - **Colour-bars "no signal"** screen for empty channels and standby.
 - **Works with the remote you have.** USB/IR remotes and keyboards (via Linux
   `evdev`) *and* the TV's own remote over **HDMI-CEC**, at the same time.
@@ -143,8 +143,9 @@ message.
 ```yaml
 tune_in: random          # random | resume | broadcast
 start_channel: 2         # channel to power on to
-static_transition: true  # analog snow between channels
-static_duration: 0.6
+start_offset: 5          # start each episode this many seconds in
+transition: glitch       # channel-change effect: glitch | static | none
+transition_duration: 0.4
 channel_bug_seconds: 4   # how long the channel banner lingers
 initial_volume: 70       # 0–100
 volume_step: 5

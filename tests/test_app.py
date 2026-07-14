@@ -14,6 +14,7 @@ def build_app(tmp_path, *, assets_dir=None, **overrides):
     data = {
         "shuffle_seed": 7,
         "start_channel": 2,
+        "start_offset": 0,  # keep test assertions on start=0 unless overridden
         "channels": [
             {"number": 2, "name": "Dragon Tales", "path": str(tmp_path / "dragon")},
             {"number": 3, "name": "Arthur", "path": str(tmp_path / "arthur")},
@@ -162,32 +163,50 @@ def test_quit_stops_running(tmp_path):
     assert app._running is False
 
 
-def test_static_transition_then_episode(tmp_path):
+def test_glitch_transition_then_episode(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "static.mp4").write_bytes(b"\x00")
-    app, player, clock = build_app(tmp_path, assets_dir=assets, static_duration=0.5)
+    (assets / "glitch.mp4").write_bytes(b"\x00")  # default transition is glitch
+    app, player, clock = build_app(tmp_path, assets_dir=assets, transition_duration=0.4)
     app.start()
     send(app, Action.CHANNEL_UP)
-    # A static->episode transition was issued (static clip + preloaded episode).
-    assert player.transitions, "expected a static transition on channel change"
-    static_path, target, _start = player.transitions[-1]
-    assert static_path == assets / "static.mp4"
+    # A glitch->episode transition was issued (glitch clip + preloaded episode).
+    assert player.transitions, "expected a transition on channel change"
+    clip, target, _start = player.transitions[-1]
+    assert clip == assets / "glitch.mp4"
     assert player.current == target  # the episode is what plays
 
 
-def test_advance_within_channel_has_no_static(tmp_path):
-    # An episode ending should roll straight into the next one (no static burst).
+def test_transition_none_cuts_straight(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "static.mp4").write_bytes(b"\x00")
+    (assets / "glitch.mp4").write_bytes(b"\x00")
+    app, player, _ = build_app(tmp_path, assets_dir=assets, transition="none")
+    app.start()
+    send(app, Action.CHANNEL_UP)
+    assert not player.transitions  # no transition clip; cut straight to episode
+    assert player.current is not None
+
+
+def test_advance_within_channel_has_no_transition(tmp_path):
+    # An episode ending should roll straight into the next one (no glitch burst).
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "glitch.mp4").write_bytes(b"\x00")
     app, player, _ = build_app(tmp_path, assets_dir=assets)
     app.start()
     before = len(player.transitions)
     player.finish_current(END_EOF)
     app._drain_playback_events()
-    assert len(player.transitions) == before  # no new static transition
+    assert len(player.transitions) == before  # no new transition
     assert player.current is not None
+
+
+def test_start_offset_applied(tmp_path):
+    app, player, _ = build_app(tmp_path, start_offset=5)
+    app.start()
+    # The episode should begin 5 seconds in, not at the very beginning.
+    assert player.played[-1][1] == 5.0
 
 
 def test_empty_channel_shows_no_signal(tmp_path):

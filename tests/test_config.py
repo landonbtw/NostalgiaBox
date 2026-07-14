@@ -82,13 +82,13 @@ def test_volume_and_durations_clamped(tmp_path):
     data = {
         "initial_volume": 500,
         "volume_step": 0,
-        "static_duration": -3,
+        "transition_duration": -3,
         "channels": [{"path": str(tmp_path / "a")}],
     }
     cfg = config_from_dict(data)
     assert cfg.initial_volume == 100
     assert cfg.volume_step == 1
-    assert cfg.static_duration == 0.0
+    assert cfg.transition_duration == 0.0
 
 
 def test_video_extensions_normalised(tmp_path):
@@ -107,8 +107,10 @@ def test_ui_and_crt_defaults(tmp_path):
     assert cfg.ui.font == "VT323"
     assert cfg.ui.color == "#4DFF5A"
     assert cfg.crt.enabled is True
-    assert cfg.static_duration == 0.5
     assert cfg.force_4_3 is False   # shows keep their native aspect by default
+    assert cfg.start_offset == 5.0
+    assert cfg.transition_effect == "glitch"
+    assert cfg.transition_duration == 0.4
 
 
 def test_ui_and_crt_overrides(tmp_path):
@@ -138,6 +140,14 @@ def test_crt_values_clamped(tmp_path):
     )
     assert cfg.crt.curvature == 0.5   # clamped to max
     assert cfg.crt.vignette == 0.0    # clamped to min
+
+
+def test_bad_transition_rejected(tmp_path):
+    make_show(tmp_path, "a", 1)
+    with pytest.raises(ConfigError, match="transition"):
+        config_from_dict(
+            {"channels": [{"path": str(tmp_path / "a")}], "transition": "sparkles"}
+        )
 
 
 def test_bad_color_rejected(tmp_path):

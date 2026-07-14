@@ -36,6 +36,12 @@ class ConfigError(Exception):
 #               whatever "would" be airing right now.
 TUNE_IN_MODES = ("random", "resume", "broadcast")
 
+# Effect shown briefly while changing channels.
+#   glitch - a short burst of digital corruption (default)
+#   static - classic analog snow
+#   none   - cut straight to the next channel
+TRANSITION_EFFECTS = ("glitch", "static", "none")
+
 
 @dataclass(frozen=True)
 class UiConfig:
@@ -87,8 +93,9 @@ class Config:
     # Presentation / "feel" of the TV.
     force_4_3: bool = False                # if true, letterbox everything to 4:3;
                                           #   default keeps each show's own aspect
-    static_transition: bool = True
-    static_duration: float = 0.5          # seconds of snow when changing channel
+    start_offset: float = 5.0             # start each episode this many seconds in
+    transition_effect: str = "glitch"     # channel-change effect: glitch|static|none
+    transition_duration: float = 0.4      # length of the channel-change effect
     channel_bug_seconds: float = 4.0      # how long the channel banner lingers
     osd_duration: float = 2.0             # how long volume/message overlays linger
     ui: UiConfig = field(default_factory=UiConfig)
@@ -241,8 +248,9 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         tune_in=tune_in,
         start_channel=start_channel,
         force_4_3=bool(data.get("force_4_3", False)),
-        static_transition=bool(data.get("static_transition", True)),
-        static_duration=_clamp_float(data.get("static_duration", 0.5), 0.0, 10.0, "static_duration"),
+        start_offset=_clamp_float(data.get("start_offset", 5.0), 0.0, 3600.0, "start_offset"),
+        transition_effect=_valid_transition(data.get("transition", "glitch")),
+        transition_duration=_clamp_float(data.get("transition_duration", 0.4), 0.0, 10.0, "transition_duration"),
         channel_bug_seconds=_clamp_float(data.get("channel_bug_seconds", 4.0), 0.0, 60.0, "channel_bug_seconds"),
         osd_duration=_clamp_float(data.get("osd_duration", 2.0), 0.0, 60.0, "osd_duration"),
         ui=_parse_ui(data.get("ui")),
@@ -304,6 +312,13 @@ def _parse_crt(raw: Any) -> CrtConfig:
     )
 
 
+def _valid_transition(value: Any) -> str:
+    s = str(value).strip().lower()
+    if s not in TRANSITION_EFFECTS:
+        raise ConfigError(f"'transition' must be one of {TRANSITION_EFFECTS}, got '{value}'")
+    return s
+
+
 def _valid_color(value: Any, name: str) -> str:
     """Validate a ``#RRGGBB`` hex colour string."""
     import re
@@ -351,4 +366,5 @@ __all__ = [
     "config_from_dict",
     "DEFAULT_VIDEO_EXTENSIONS",
     "TUNE_IN_MODES",
+    "TRANSITION_EFFECTS",
 ]

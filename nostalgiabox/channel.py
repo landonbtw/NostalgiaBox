@@ -109,11 +109,15 @@ class Channel:
         episodes: Sequence[Path],
         *,
         tune_in: str = "random",
+        start_offset: float = 0.0,
         rng: Optional[random.Random] = None,
     ) -> None:
         self.config = config
         self.episodes: List[Path] = list(episodes)
         self.tune_in_mode = tune_in
+        # Start each episode this many seconds in, to skip the black leader/intro
+        # so the picture appears already "in the show" on a channel change.
+        self.start_offset = max(0.0, start_offset)
         self._rng = rng or random.Random()
         self._bag: Optional[ShuffleBag[Path]] = (
             ShuffleBag(self.episodes, self._rng) if self.episodes else None
@@ -143,7 +147,7 @@ class Channel:
     # -- playback selection -------------------------------------------------
     def _next_shuffled(self) -> PlayRequest:
         assert self._bag is not None
-        return PlayRequest(path=self._bag.next(), start=0.0)
+        return PlayRequest(path=self._bag.next(), start=self.start_offset)
 
     def tune_in(self, *, now: Optional[float] = None) -> Optional[PlayRequest]:
         """Decide what to play the instant a viewer switches to this channel."""
@@ -275,6 +279,7 @@ def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> Chan
                 ch_cfg,
                 episodes,
                 tune_in=config.tune_in,
+                start_offset=config.start_offset,
                 rng=ch_rng,
             )
         )

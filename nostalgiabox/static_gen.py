@@ -28,6 +28,7 @@ DEFAULT_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
 STATIC_FILENAME = "static.mp4"
 COLORBARS_FILENAME = "colorbars.mp4"
+GLITCH_FILENAME = "glitch.mp4"
 
 
 def ffmpeg_available() -> bool:
@@ -61,6 +62,38 @@ def generate_static(
         "-vf", "geq=lum='random(1)*255':cb=128:cr=128,format=yuv420p",
         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
         # Silent: the snow is picture-only, no audio hiss.
+        "-an",
+        str(out_path),
+    ]
+    _run(cmd)
+    return out_path
+
+
+def generate_glitch(
+    out_path: Path,
+    *,
+    duration: float = 0.6,
+    width: int = 1280,
+    height: int = 720,
+    fps: int = 25,
+) -> Path:
+    """Render a short, silent 'digital glitch' clip to ``out_path``.
+
+    Chunky coloured blocks (small random frame scaled up with nearest-neighbour)
+    read as corrupted video macroblocks - a brief digital glitch shown while the
+    channel changes. Only a fraction is shown per change, but the CRT shader is
+    applied to it so it stays inside the tube frame.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"nullsrc=s=96x54:r={fps}:d={duration}",
+        "-vf", (
+            "geq=r='random(1)*255':g='random(2)*255':b='random(3)*255',"
+            f"scale={width}:{height}:flags=neighbor,format=yuv420p"
+        ),
+        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
         "-an",
         str(out_path),
     ]
@@ -109,6 +142,12 @@ def generate_all(assets_dir: Path, *, force: bool = False) -> List[Path]:
         results.append(generate_static(static_path))
     else:
         results.append(static_path)
+
+    glitch_path = assets_dir / GLITCH_FILENAME
+    if force or not glitch_path.exists():
+        results.append(generate_glitch(glitch_path))
+    else:
+        results.append(glitch_path)
 
     bars_path = assets_dir / COLORBARS_FILENAME
     if force or not bars_path.exists():

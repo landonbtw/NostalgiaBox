@@ -26,7 +26,12 @@ from .config import Config
 from .input.manager import InputManager, create_backends
 from .overlay import OverlayManager
 from .player import END_EOF, END_ERROR, MockPlayer, Player
-from .static_gen import COLORBARS_FILENAME, DEFAULT_ASSETS_DIR, STATIC_FILENAME
+from .static_gen import (
+    COLORBARS_FILENAME,
+    DEFAULT_ASSETS_DIR,
+    GLITCH_FILENAME,
+    STATIC_FILENAME,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,8 +76,9 @@ class TVApp:
 
         # Filler assets.
         self._assets_dir = assets_dir or config.assets_dir or DEFAULT_ASSETS_DIR
-        self._static_path = self._resolve_asset(STATIC_FILENAME)
         self._colorbars_path = self._resolve_asset(COLORBARS_FILENAME)
+        # The channel-change transition clip depends on the configured effect.
+        self._transition_path = self._resolve_transition_asset()
 
     # -- construction -------------------------------------------------------
     @classmethod
@@ -245,18 +251,15 @@ class TVApp:
             self._show_no_signal(channel)
             return
 
-        if (
-            show_static
-            and self.config.static_transition
-            and self._static_path is not None
-        ):
-            # Static burst + preloaded episode = a near-instant channel change.
+        if show_static and self._transition_path is not None:
+            # Transition clip (glitch/static) + preloaded episode = a fast,
+            # covered channel change.
             self._playing_path = request.path
             self.player.play_transition(
-                self._static_path,
+                self._transition_path,
                 request.path,
                 start=request.start,
-                static_seconds=self.config.static_duration,
+                static_seconds=self.config.transition_duration,
             )
         else:
             self._play_request(request)
@@ -366,6 +369,13 @@ class TVApp:
     def _resolve_asset(self, filename: str) -> Optional[Path]:
         path = self._assets_dir / filename
         return path if path.is_file() else None
+
+    def _resolve_transition_asset(self) -> Optional[Path]:
+        effect = self.config.transition_effect
+        if effect == "none":
+            return None
+        filename = GLITCH_FILENAME if effect == "glitch" else STATIC_FILENAME
+        return self._resolve_asset(filename)
 
 
 def run_from_config(config: Config, *, dry_run: bool = False) -> None:
