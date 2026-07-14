@@ -71,14 +71,15 @@ start_channel: 2          # which channel the box powers on to
 # show into a single 4:3 frame.
 force_4_3: false
 
-start_offset: 5           # start each episode this many seconds in (skips the
-                          #   black leader/intro so the show is already playing)
+# Start each episode a random number of seconds in, between these two values, so
+# channel switches land at varied points in the show (skips the black leader/
+# intro too). Use a single number for a fixed offset, e.g. `start_offset: 5`.
+start_offset: [6, 10]
 
-# Channel-change effect: "glitch" (brief digital corruption), "static" (analog
-# snow), or "none" (cut straight over). The effect also covers the moment the
-# next episode is preloaded, so switches feel fast.
-transition: glitch
-transition_duration: 0.4  # how long the effect shows
+# Channel-change effect: "none" (cut straight over, default), "glitch" (brief
+# digital corruption), or "static" (analog snow).
+transition: none
+transition_duration: 0.4  # how long the effect shows (if not "none")
 channel_bug_seconds: 4    # how long the channel banner lingers
 osd_duration: 2           # how long the volume bar / messages linger
 

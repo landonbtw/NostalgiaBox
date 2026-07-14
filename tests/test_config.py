@@ -108,9 +108,24 @@ def test_ui_and_crt_defaults(tmp_path):
     assert cfg.ui.color == "#4DFF5A"
     assert cfg.crt.enabled is True
     assert cfg.force_4_3 is False   # shows keep their native aspect by default
-    assert cfg.start_offset == 5.0
-    assert cfg.transition_effect == "glitch"
+    assert cfg.start_offset_min == 6.0
+    assert cfg.start_offset_max == 10.0
+    assert cfg.transition_effect == "none"
     assert cfg.transition_duration == 0.4
+
+
+def test_start_offset_forms(tmp_path):
+    make_show(tmp_path, "a", 1)
+    base = {"channels": [{"path": str(tmp_path / "a")}]}
+    # single number -> min == max
+    c1 = config_from_dict({**base, "start_offset": 8})
+    assert (c1.start_offset_min, c1.start_offset_max) == (8.0, 8.0)
+    # [min, max] list
+    c2 = config_from_dict({**base, "start_offset": [6, 10]})
+    assert (c2.start_offset_min, c2.start_offset_max) == (6.0, 10.0)
+    # explicit keys, and min/max get ordered
+    c3 = config_from_dict({**base, "start_offset_min": 10, "start_offset_max": 6})
+    assert (c3.start_offset_min, c3.start_offset_max) == (10.0, 10.0)
 
 
 def test_ui_and_crt_overrides(tmp_path):

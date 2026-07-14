@@ -112,10 +112,17 @@ def test_advance_continues_shuffle(tmp_path):
     assert len(seen) == 4  # every episode shown before repeats
 
 
-def test_start_offset_applied_to_shuffle(tmp_path):
-    ch = _channel(tmp_path, tune_in="random", start_offset=5.0)
+def test_start_offset_fixed(tmp_path):
+    ch = _channel(tmp_path, tune_in="random", start_offset_min=5.0, start_offset_max=5.0)
     assert ch.tune_in().start == 5.0
     assert ch.advance().start == 5.0
+
+
+def test_start_offset_range(tmp_path):
+    ch = _channel(tmp_path, tune_in="random", start_offset_min=6.0, start_offset_max=10.0)
+    starts = [ch.tune_in().start for _ in range(20)] + [ch.advance().start for _ in range(20)]
+    assert all(6.0 <= s <= 10.0 for s in starts)
+    assert len(set(round(s, 3) for s in starts)) > 1  # actually varies
 
 
 def test_resume_mode_remembers_position(tmp_path):

@@ -166,8 +166,8 @@ def test_quit_stops_running(tmp_path):
 def test_glitch_transition_then_episode(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
-    (assets / "glitch.mp4").write_bytes(b"\x00")  # default transition is glitch
-    app, player, clock = build_app(tmp_path, assets_dir=assets, transition_duration=0.4)
+    (assets / "glitch.mp4").write_bytes(b"\x00")
+    app, player, clock = build_app(tmp_path, assets_dir=assets, transition="glitch")
     app.start()
     send(app, Action.CHANNEL_UP)
     # A glitch->episode transition was issued (glitch clip + preloaded episode).
@@ -193,7 +193,7 @@ def test_advance_within_channel_has_no_transition(tmp_path):
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "glitch.mp4").write_bytes(b"\x00")
-    app, player, _ = build_app(tmp_path, assets_dir=assets)
+    app, player, _ = build_app(tmp_path, assets_dir=assets, transition="glitch")
     app.start()
     before = len(player.transitions)
     player.finish_current(END_EOF)
@@ -207,6 +207,12 @@ def test_start_offset_applied(tmp_path):
     app.start()
     # The episode should begin 5 seconds in, not at the very beginning.
     assert player.played[-1][1] == 5.0
+
+
+def test_start_offset_range_applied(tmp_path):
+    app, player, _ = build_app(tmp_path, start_offset=[6, 10])
+    app.start()
+    assert 6.0 <= player.played[-1][1] <= 10.0
 
 
 def test_empty_channel_shows_no_signal(tmp_path):

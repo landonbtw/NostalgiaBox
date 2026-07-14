@@ -98,8 +98,11 @@ class Config:
     # Presentation / "feel" of the TV.
     force_4_3: bool = False                # if true, letterbox everything to 4:3;
                                           #   default keeps each show's own aspect
-    start_offset: float = 5.0             # start each episode this many seconds in
-    transition_effect: str = "glitch"     # channel-change effect: glitch|static|none
+    # Start each episode a random number of seconds in (between min and max), so
+    # channel switches land at varied points in the show.
+    start_offset_min: float = 6.0
+    start_offset_max: float = 10.0
+    transition_effect: str = "none"       # channel-change effect: none|glitch|static
     transition_duration: float = 0.4      # length of the channel-change effect
     channel_bug_seconds: float = 4.0      # how long the channel banner lingers
     osd_duration: float = 2.0             # how long volume/message overlays linger
@@ -289,8 +292,9 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         tune_in=tune_in,
         start_channel=start_channel,
         force_4_3=bool(data.get("force_4_3", False)),
-        start_offset=_clamp_float(data.get("start_offset", 5.0), 0.0, 3600.0, "start_offset"),
-        transition_effect=_valid_transition(data.get("transition", "glitch")),
+        start_offset_min=_offset_range(data)[0],
+        start_offset_max=_offset_range(data)[1],
+        transition_effect=_valid_transition(data.get("transition", "none")),
         transition_duration=_clamp_float(data.get("transition_duration", 0.4), 0.0, 10.0, "transition_duration"),
         channel_bug_seconds=_clamp_float(data.get("channel_bug_seconds", 4.0), 0.0, 60.0, "channel_bug_seconds"),
         osd_duration=_clamp_float(data.get("osd_duration", 2.0), 0.0, 60.0, "osd_duration"),
@@ -351,6 +355,27 @@ def _parse_crt(raw: Any) -> CrtConfig:
             raw.get("scanline_intensity", d.scanline_intensity), 0.0, 1.0, "crt.scanline_intensity"
         ),
     )
+
+
+def _offset_range(data: Dict[str, Any]) -> tuple[float, float]:
+    """Resolve the (min, max) start-offset seconds from the config.
+
+    Accepts ``start_offset`` as a single number or a ``[min, max]`` list, or
+    explicit ``start_offset_min`` / ``start_offset_max`` keys.
+    """
+    if "start_offset_min" in data or "start_offset_max" in data:
+        lo = _clamp_float(data.get("start_offset_min", 0.0), 0.0, 3600.0, "start_offset_min")
+        hi = _clamp_float(data.get("start_offset_max", lo), 0.0, 3600.0, "start_offset_max")
+    else:
+        raw = data.get("start_offset", [6.0, 10.0])
+        if isinstance(raw, (list, tuple)):
+            if not raw:
+                raise ConfigError("'start_offset' list cannot be empty")
+            lo = _clamp_float(raw[0], 0.0, 3600.0, "start_offset")
+            hi = _clamp_float(raw[1] if len(raw) > 1 else raw[0], 0.0, 3600.0, "start_offset")
+        else:
+            lo = hi = _clamp_float(raw, 0.0, 3600.0, "start_offset")
+    return (lo, max(lo, hi))
 
 
 def _valid_transition(value: Any) -> str:

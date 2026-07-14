@@ -157,15 +157,22 @@ class Channel:
         episodes: Sequence[Path],
         *,
         tune_in: str = "random",
-        start_offset: float = 0.0,
+        start_offset_min: float = 0.0,
+        start_offset_max: Optional[float] = None,
         rng: Optional[random.Random] = None,
     ) -> None:
         self.config = config
         self.episodes: List[Path] = list(episodes)
         self.tune_in_mode = tune_in
-        # Start each episode this many seconds in, to skip the black leader/intro
-        # so the picture appears already "in the show" on a channel change.
-        self.start_offset = max(0.0, start_offset)
+        # Start each episode a random number of seconds in (within this range) so
+        # the picture appears already "in the show" and channel switches land at
+        # varied points instead of always the same spot.
+        self.start_offset_min = max(0.0, start_offset_min)
+        self.start_offset_max = (
+            self.start_offset_min
+            if start_offset_max is None
+            else max(self.start_offset_min, start_offset_max)
+        )
         self._rng = rng or random.Random()
         self._bag: Optional[ShuffleBag[Path]] = (
             ShuffleBag(self.episodes, self._rng) if self.episodes else None
@@ -195,7 +202,11 @@ class Channel:
     # -- playback selection -------------------------------------------------
     def _next_shuffled(self) -> PlayRequest:
         assert self._bag is not None
-        return PlayRequest(path=self._bag.next(), start=self.start_offset)
+        if self.start_offset_max > self.start_offset_min:
+            start = self._rng.uniform(self.start_offset_min, self.start_offset_max)
+        else:
+            start = self.start_offset_min
+        return PlayRequest(path=self._bag.next(), start=start)
 
     def tune_in(self, *, now: Optional[float] = None) -> Optional[PlayRequest]:
         """Decide what to play the instant a viewer switches to this channel."""
@@ -329,7 +340,8 @@ def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> Chan
                 ch_cfg,
                 episodes,
                 tune_in=config.tune_in,
-                start_offset=config.start_offset,
+                start_offset_min=config.start_offset_min,
+                start_offset_max=config.start_offset_max,
                 rng=ch_rng,
             )
         )
