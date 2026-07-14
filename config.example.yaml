@@ -15,9 +15,9 @@
 # after the folder and numbered sequentially. Just drop show folders in and go:
 #
 #   /media/nostalgiabox/
-#     ├── Dragon Tales/     -> channel 2 "Dragon Tales"
-#     ├── Arthur/           -> channel 3 "Arthur"
-#     └── Bluey/            -> channel 4 "Bluey"
+#     ├── Dragon Tales/          -> channel 2 "Dragon Tales"
+#     ├── Arthur/                -> channel 3 "Arthur"
+#     └── Winnie the Pooh/       -> channel 4 "Winnie The Pooh"
 #
 # media_root: /media/nostalgiabox
 # first_channel_number: 2      # what the first discovered channel is numbered
@@ -39,11 +39,11 @@ channels:
     name: "Bear in the Big Blue House"
     path: /media/nostalgiabox/bear-in-the-big-blue-house
   - number: 6
-    name: "Bluey"
-    path: /media/nostalgiabox/bluey
+    name: "Winnie the Pooh"
+    path: /media/nostalgiabox/winnie-the-pooh
   - number: 7
-    name: "Franklin"
-    path: /media/nostalgiabox/franklin
+    name: "The Berenstain Bears"
+    path: /media/nostalgiabox/berenstain-bears
   - number: 8
     name: "Mister Rogers' Neighborhood"
     path: /media/nostalgiabox/mister-rogers
