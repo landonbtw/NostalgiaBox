@@ -79,9 +79,9 @@ ui:
 # and faint scanlines. Set enabled:false if your Pi struggles or you dislike it.
 crt:
   enabled: true
-  curvature: 0.10         # 0 = flat, ~0.2 = strongly bulged
-  corner_radius: 0.045    # how rounded the corners are
-  vignette: 0.22          # edge darkening (0-1)
+  curvature: 0.12         # 0 = flat, ~0.2 = strongly bulged
+  corner_radius: 0.065    # how rounded the corners are
+  vignette: 0.25          # edge darkening (0-1)
   scanlines: true
   scanline_intensity: 0.12
 

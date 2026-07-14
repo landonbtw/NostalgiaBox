@@ -52,9 +52,9 @@ class CrtConfig:
     """The CRT picture effect applied to the 4:3 video via a GLSL shader."""
 
     enabled: bool = True
-    curvature: float = 0.10         # barrel "bulge" amount (0 = perfectly flat)
-    corner_radius: float = 0.045    # rounded-corner size (fraction of screen)
-    vignette: float = 0.22          # darkening toward the edges
+    curvature: float = 0.12         # barrel "bulge" amount (0 = perfectly flat)
+    corner_radius: float = 0.065    # rounded-corner size (fraction of screen)
+    vignette: float = 0.25          # darkening toward the edges
     scanlines: bool = True
     scanline_intensity: float = 0.12
 
