@@ -1,0 +1,35 @@
+# systemd unit template for NostalgiaBox.
+#
+# This is a TEMPLATE - scripts/install-service.sh fills in the real user, group,
+# home and paths and installs it to /etc/systemd/system/nostalgiabox.service.
+# You can also copy/edit it by hand.
+#
+# It starts the TV directly on the console (no desktop needed): mpv renders via
+# the KMS/DRM video output straight to the HDMI display.
+
+[Unit]
+Description=NostalgiaBox retro TV
+After=multi-user.target sound.target
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+# Access to the framebuffer/GPU, input devices and audio.
+SupplementaryGroups=video render input audio tty
+WorkingDirectory=__REPO_DIR__
+Environment=HOME=__HOME__
+# Render straight to the console/HDMI via KMS-DRM.
+Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+ExecStart=__REPO_DIR__/.venv/bin/nostalgiabox --config __REPO_DIR__/config.yaml
+Restart=always
+RestartSec=3
+# Own the console so video can be shown on it.
+StandardInput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

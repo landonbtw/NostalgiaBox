@@ -1,0 +1,11 @@
+# Core dependency (needed everywhere, including on the Raspberry Pi).
+PyYAML>=6.0
+
+# --- Raspberry Pi runtime dependencies ---------------------------------------
+# These are required to actually play video and read the remote on the Pi.
+# They are commented out here because they need system libraries (libmpv,
+# libevdev) that are installed by scripts/install.sh. Uncomment / install with
+# `pip install .[pi]` on the device.
+#
+# python-mpv>=1.0.5   # bindings to libmpv for hardware-accelerated playback
+# evdev>=1.6.1        # reads USB/IR remotes exposed as Linux input devices

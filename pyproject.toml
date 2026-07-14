@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nostalgiabox"
+version = "1.0.0"
+description = "A retro TV media player for a Raspberry Pi 'nostalgia box' - fixed channels, shuffled episodes, and an authentic early-2000s television experience."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "NostalgiaBox" }]
+keywords = ["raspberry-pi", "media-player", "retro-tv", "mpv", "nostalgia", "kids"]
+
+# Core runtime dependency. The hardware-specific dependencies (python-mpv,
+# evdev) live in the optional "pi" extra so the pure logic can be developed and
+# tested on any machine.
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Everything needed to actually run on the Raspberry Pi against a TV.
+pi = [
+    "python-mpv>=1.0.5",
+    "evdev>=1.6.1",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+nostalgiabox = "nostalgiabox.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["nostalgiabox*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
