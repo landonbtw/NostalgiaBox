@@ -153,9 +153,11 @@ class MpvPlayer(Player):
             # A pleasant, readable OSD font size relative to the window.
             osd_font_size=40,
         )
-        if glsl_shaders:
-            # The CRT curvature/vignette/scanline shader (see nostalgiabox.crt).
-            options["glsl_shaders"] = glsl_shaders
+        # The CRT shader is applied per-file (see _apply_shader_for_current) so
+        # that it only affects episodes - the static and colour-bar filler clips
+        # fill the whole 16:9 screen flat, with no curvature/rounding.
+        self._shader = glsl_shaders or None
+        self._no_crt_files: set[str] = set()
         if force_4_3:
             # Fit ANY source into a 4:3 raster (letterboxing 16:9 with black
             # bars), so every show - and the static/colour-bar clips - appears in
@@ -173,6 +175,10 @@ class MpvPlayer(Player):
         # True while a looping filler clip (static / colour bars) is showing, so
         # its (non-)ending never advances the channel.
         self._suppress = True
+
+        @self._mpv.event_callback("file-loaded")
+        def _on_file_loaded(_event):  # pragma: no cover - needs libmpv + media
+            self._apply_shader_for_current()
 
         @self._mpv.property_observer("eof-reached")
         def _on_eof(_name, value):  # pragma: no cover - needs libmpv + media
@@ -215,6 +221,7 @@ class MpvPlayer(Player):
 
     def play_loop(self, path: Path) -> None:
         self._suppress = True  # a looping clip should never trigger "next"
+        self._no_crt_files.add(str(path))  # filler clips get no CRT effect
         try:
             self._mpv.loop_file = "inf"
             self._mpv.loadfile(str(path), "replace")
@@ -236,6 +243,7 @@ class MpvPlayer(Player):
         # holds the LAST entry, so eof-reached (which advances the channel) only
         # ever trips for the episode - never the static.
         self._suppress = False
+        self._no_crt_files.add(str(static_path))  # static fills 16:9, no CRT
         try:
             self._mpv.loop_file = "no"
             self._mpv.loadfile(
@@ -256,6 +264,17 @@ class MpvPlayer(Player):
             self._mpv.command("stop")
         except Exception:  # noqa: BLE001 - stopping should never crash us
             log.debug("mpv stop failed", exc_info=True)
+
+    def _apply_shader_for_current(self) -> None:
+        """Turn the CRT shader on for episodes, off for the filler clips."""
+        if not self._shader:
+            return
+        try:
+            cur = self._mpv.path
+            use = bool(cur) and cur not in self._no_crt_files
+            self._mpv["glsl-shaders"] = self._shader if use else ""
+        except Exception:  # noqa: BLE001
+            log.debug("could not toggle CRT shader", exc_info=True)
 
     # -- audio --------------------------------------------------------------
     def set_volume(self, volume: int) -> None:

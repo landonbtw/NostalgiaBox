@@ -62,8 +62,11 @@ tune_in: random
 start_channel: 2          # which channel the box powers on to
 
 # --- The "feel" of the TV ----------------------------------------------------
-force_4_3: true           # show everything in a 4:3 tube frame (16:9 is
-                          #   letterboxed); the static/colour bars fill it too
+# Shows keep their own aspect ratio (4:3 is pillar-boxed, 16:9 fills the screen)
+# and get the CRT curve/rounding. The static/colour-bar clips always fill the
+# whole 16:9 screen flat (no CRT). Set force_4_3:true to instead letterbox every
+# show into a single 4:3 frame.
+force_4_3: false
 static_transition: true   # burst of analog snow when changing channels
 static_duration: 0.5      # seconds of snow between channels
 channel_bug_seconds: 4    # how long the channel banner lingers
