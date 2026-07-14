@@ -71,8 +71,10 @@ class TVApp:
         self._digit_entry_timeout = 2.0
 
         # Pending "bridge" switch: keep the old show playing until this deadline,
-        # then cut to the channel that was preloaded.
+        # then cut to the channel that was preloaded. The channel banner is shown
+        # at the moment of the cut-over, not when the button is pressed.
         self._switch_deadline: Optional[float] = None
+        self._pending_banner: Optional[tuple[int, str]] = None
 
         # Playback-finished events from the player (may arrive on any thread).
         self._ended: "queue.Queue[str]" = queue.Queue()
@@ -179,6 +181,10 @@ class TVApp:
         if self._switch_deadline is not None and now >= self._switch_deadline:
             self._switch_deadline = None
             self.player.commit_switch()
+            # Flash the channel banner right as the picture actually changes.
+            if self._pending_banner is not None:
+                self.overlay.show_channel_bug(*self._pending_banner)
+                self._pending_banner = None
 
     # -- input handling -----------------------------------------------------
     def handle_event(self, event: InputEvent) -> None:
@@ -256,20 +262,23 @@ class TVApp:
         self.overlay.clear_standby()
 
         request = channel.tune_in()
-        self.overlay.show_channel_bug(channel.number, channel.name)
+        self._pending_banner = None
 
         if request is None:
             # No episodes on this channel: show the "no signal" screen.
+            self.overlay.show_channel_bug(channel.number, channel.name)
             self._show_no_signal(channel)
             return
 
         if not show_static:
             # Not a channel change (first tune / waking from standby): play now.
             self._switch_deadline = None
+            self.overlay.show_channel_bug(channel.number, channel.name)
             self._play_request(request)
         elif self._transition_path is not None:
             # Transition clip (glitch/static) + preloaded episode.
             self._switch_deadline = None
+            self.overlay.show_channel_bug(channel.number, channel.name)
             self._playing_path = request.path
             self.player.play_transition(
                 self._transition_path,
@@ -279,12 +288,15 @@ class TVApp:
             )
         elif self.config.bridge_seconds > 0 and self._playing_path is not None:
             # No transition effect: keep the current show playing while the next
-            # channel preloads, then cut over (no frozen frame).
+            # channel preloads, then cut over (no frozen frame). The banner is
+            # shown at the cut-over (see _maybe_commit_switch), not right now.
             self._playing_path = request.path
             self.player.preload_next(request.path, start=request.start)
             self._switch_deadline = self._clock() + self.config.bridge_seconds
+            self._pending_banner = (channel.number, channel.name)
         else:
             self._switch_deadline = None
+            self.overlay.show_channel_bug(channel.number, channel.name)
             self._play_request(request)
 
     def _play_request(self, request: PlayRequest) -> None:
@@ -293,6 +305,7 @@ class TVApp:
 
     def _show_no_signal(self, channel: Channel) -> None:
         self._switch_deadline = None
+        self._pending_banner = None
         self._playing_path = None
         if self._colorbars_path is not None:
             self.player.play_loop(self._colorbars_path)
@@ -332,6 +345,7 @@ class TVApp:
         if self.standby:
             self._remember_position()
             self._switch_deadline = None
+            self._pending_banner = None
             self.player.stop()
             self.overlay.clear_all()
             self.overlay.show_standby()

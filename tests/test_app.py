@@ -246,6 +246,17 @@ def test_empty_channel_shows_no_signal(tmp_path):
     assert "NO SIGNAL" in app.player.overlays.get(4, "")
 
 
+def test_channel_banner_deferred_until_switch(tmp_path):
+    app, player, clock = build_app(tmp_path, bridge_seconds=0.8)
+    app.start()
+    player.overlays.pop(1, None)          # clear the power-on banner
+    send(app, Action.CHANNEL_UP)
+    assert 1 not in player.overlays       # banner NOT shown during the bridge
+    clock.advance(1.0)
+    app.step()                            # cut-over happens here
+    assert "CH 03" in player.overlays.get(1, "")  # banner appears at the switch
+
+
 def test_resume_mode_restarts_where_left(tmp_path):
     # bridge_seconds=0 keeps this test focused on resume (immediate switches)
     app, player, _ = build_app(tmp_path, tune_in="resume", bridge_seconds=0)
