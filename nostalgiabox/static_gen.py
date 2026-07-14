@@ -2,8 +2,8 @@
 
 These short clips are what make channel changes feel like a real 2000s TV:
 
-* ``static.mp4`` - a couple of seconds of grey "snow" with audio hiss, looped
-  briefly whenever the channel changes.
+* ``static.mp4`` - a second of silent grey "snow", shown briefly whenever the
+  channel changes.
 * ``colorbars.mp4`` - SMPTE colour bars with a 1 kHz tone, shown at start-up and
   as a friendly "no signal" / empty-channel screen.
 
@@ -43,26 +43,25 @@ def generate_static(
     out_path: Path,
     *,
     duration: float = 1.0,
-    width: int = 640,
-    height: int = 480,
+    width: int = 1280,
+    height: int = 720,
     fps: int = 25,
 ) -> Path:
-    """Render a loopable analog-snow clip with hiss to ``out_path``.
+    """Render a loopable, silent analog-snow clip to ``out_path``.
 
     Only ~0.5s is shown per channel change, but we render a full second so the
-    brief loop never shows a visible seam.
+    brief loop never shows a visible seam. The clip has no audio track, so
+    channel changes are silent (no static hiss).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         "ffmpeg", "-y",
         "-f", "lavfi",
         "-i", f"nullsrc=s={width}x{height}:r={fps}:d={duration}",
-        "-f", "lavfi",
-        "-i", f"anoisesrc=d={duration}:c=white:a=0.06",
         "-vf", "geq=lum='random(1)*255':cb=128:cr=128,format=yuv420p",
         "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "96k",
-        "-shortest",
+        # Silent: the snow is picture-only, no audio hiss.
+        "-an",
         str(out_path),
     ]
     _run(cmd)
@@ -73,8 +72,8 @@ def generate_color_bars(
     out_path: Path,
     *,
     duration: float = 6.0,
-    width: int = 640,
-    height: int = 480,
+    width: int = 1280,
+    height: int = 720,
     fps: int = 25,
 ) -> Path:
     """Render SMPTE colour bars with a 1 kHz tone to ``out_path``."""
