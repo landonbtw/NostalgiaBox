@@ -115,6 +115,22 @@ channels:
 See [`config.example.yaml`](config.example.yaml) for every option. Validate any
 time with `nostalgiabox --check`, which lists your channels and episode counts.
 
+### Leaving out episodes
+
+Per channel you can drop content you don't want to air:
+
+```yaml
+  - number: 3
+    name: "Arthur"
+    path: /media/nostalgiabox/arthur
+    exclude_seasons: ["6-25"]   # or a list like [6, 7, 8]
+    exclude: ["*special*"]      # case-insensitive glob(s) on the path/filename
+```
+
+`exclude_seasons` detects the season number from names like `S06E01`, `Season 6`,
+or `6x01`. `exclude` drops anything whose path matches a glob. Run
+`nostalgiabox --check` to confirm the resulting episode count.
+
 ---
 
 ## Remote control

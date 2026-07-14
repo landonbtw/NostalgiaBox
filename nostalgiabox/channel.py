@@ -15,10 +15,18 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import AbstractSet, Dict, List, Optional, Sequence
+
+# Patterns for pulling a season number out of a file/folder path.
+_SEASON_PATTERNS = (
+    re.compile(r"s(\d{1,2})[ ._-]?e\d{1,3}", re.IGNORECASE),   # S06E01, s6e1
+    re.compile(r"\bseason[ ._-]*(\d{1,2})\b", re.IGNORECASE),  # Season 6
+    re.compile(r"\b(\d{1,2})x\d{1,3}\b"),                       # 6x01
+)
 
 from .config import ChannelConfig, Config
 from .playlist import ShuffleBag
@@ -35,22 +43,38 @@ class PlayRequest:
     start: float = 0.0
 
 
+def detect_season(text: str) -> Optional[int]:
+    """Best-effort extraction of a season number from a path/filename."""
+    for pattern in _SEASON_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def scan_episodes(
     root: Path,
     extensions: Sequence[str],
     *,
     recursive: bool = True,
+    exclude: Sequence[str] = (),
+    exclude_seasons: AbstractSet[int] = frozenset(),
 ) -> List[Path]:
     """Return a sorted list of episode files under ``root``.
 
     Sorting is natural-ish (case-insensitive by full path) so that, in the rare
     cases we present episodes in order, they are at least stable. Hidden files
     and typical sidecar files are ignored.
+
+    ``exclude`` is a list of case-insensitive glob patterns; any episode whose
+    relative path or filename matches one is dropped. ``exclude_seasons`` drops
+    episodes whose detected season number is in the set.
     """
     if not root.exists():
         log.warning("channel folder does not exist: %s", root)
         return []
     exts = {e.lower() for e in extensions}
+    patterns = [p.lower() for p in exclude]
     walker = root.rglob("*") if recursive else root.glob("*")
     episodes = [
         p
@@ -58,9 +82,33 @@ def scan_episodes(
         if p.is_file()
         and p.suffix.lower() in exts
         and not p.name.startswith(".")
+        and not _is_excluded(p, root, patterns, exclude_seasons)
     ]
     episodes.sort(key=lambda p: str(p).lower())
     return episodes
+
+
+def _is_excluded(
+    path: Path,
+    root: Path,
+    patterns: Sequence[str],
+    exclude_seasons: AbstractSet[int],
+) -> bool:
+    import fnmatch
+
+    try:
+        rel = path.relative_to(root).as_posix().lower()
+    except ValueError:  # pragma: no cover - path always under root here
+        rel = path.name.lower()
+    name = path.name.lower()
+    for pat in patterns:
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(name, pat):
+            return True
+    if exclude_seasons:
+        season = detect_season(rel)
+        if season is not None and season in exclude_seasons:
+            return True
+    return False
 
 
 class BroadcastSchedule:
@@ -261,6 +309,8 @@ def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> Chan
             ch_cfg.path,
             config.video_extensions,
             recursive=config.scan_recursive,
+            exclude=ch_cfg.exclude,
+            exclude_seasons=ch_cfg.exclude_seasons,
         )
         if not episodes:
             log.warning(
@@ -292,5 +342,6 @@ __all__ = [
     "PlayRequest",
     "BroadcastSchedule",
     "scan_episodes",
+    "detect_season",
     "build_lineup",
 ]

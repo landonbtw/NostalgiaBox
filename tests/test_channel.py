@@ -5,6 +5,7 @@ from nostalgiabox.channel import (
     Channel,
     ChannelLineup,
     build_lineup,
+    detect_season,
     scan_episodes,
 )
 from nostalgiabox.config import config_from_dict
@@ -30,6 +31,59 @@ def test_scan_episodes_sorted_and_filtered(tmp_path):
         "arthur_ep02.mp4",
         "arthur_ep03.mp4",
     ]
+
+
+def test_detect_season():
+    assert detect_season("Arthur S06E01.mp4") == 6
+    assert detect_season("arthur.s6e12.mkv") == 6
+    assert detect_season("Season 12/ep03.mp4") == 12
+    assert detect_season("Arthur 6x05.mp4") == 6
+    assert detect_season("Arthurs Perfect Christmas.mp4") is None
+
+
+def test_scan_exclude_globs(tmp_path):
+    folder = tmp_path / "arthur"
+    (folder / "Season 1").mkdir(parents=True)
+    (folder / "Specials").mkdir(parents=True)
+    (folder / "Season 1" / "S01E01.mp4").write_bytes(b"")
+    (folder / "Specials" / "Arthur Special.mp4").write_bytes(b"")
+    eps = scan_episodes(folder, [".mp4"], exclude=["*special*"])
+    names = [p.name for p in eps]
+    assert names == ["S01E01.mp4"]
+
+
+def test_scan_exclude_seasons(tmp_path):
+    folder = tmp_path / "arthur"
+    folder.mkdir()
+    for s in (1, 5, 6, 7, 25):
+        (folder / f"Arthur S{s:02d}E01.mp4").write_bytes(b"")
+    eps = scan_episodes(folder, [".mp4"], exclude_seasons=set(range(6, 26)))
+    seasons = sorted(detect_season(p.name) for p in eps)
+    assert seasons == [1, 5]  # 6..25 removed
+
+
+def test_build_lineup_applies_channel_excludes(tmp_path):
+    folder = tmp_path / "arthur"
+    folder.mkdir()
+    (folder / "Arthur S01E01.mp4").write_bytes(b"")
+    (folder / "Arthur S06E01.mp4").write_bytes(b"")
+    (folder / "Arthur Special.mp4").write_bytes(b"")
+    cfg = config_from_dict(
+        {
+            "channels": [
+                {
+                    "number": 3,
+                    "name": "Arthur",
+                    "path": str(folder),
+                    "exclude": ["*special*"],
+                    "exclude_seasons": ["6-25"],
+                }
+            ]
+        }
+    )
+    lineup = build_lineup(cfg)
+    eps = list(lineup)[0].episodes
+    assert [p.name for p in eps] == ["Arthur S01E01.mp4"]
 
 
 def test_scan_recursive(tmp_path):

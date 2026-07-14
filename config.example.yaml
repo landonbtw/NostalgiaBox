@@ -32,6 +32,10 @@ channels:
   - number: 3
     name: "Arthur"
     path: /media/nostalgiabox/arthur
+    # Leave out episodes you don't want on this channel:
+    exclude_seasons: ["6-25"]      # drop seasons 6 through 25 (detected from
+                                   #   names like S06E01, "Season 6", 6x01)
+    exclude: ["*special*"]         # drop any file/folder whose path matches
   - number: 4
     name: "The Magic School Bus"
     path: /media/nostalgiabox/magic-school-bus

@@ -73,6 +73,11 @@ class ChannelConfig:
     name: str
     path: Path
     shuffle: bool = True
+    # Episodes to leave out. `exclude` is a list of case-insensitive glob
+    # patterns matched against each file's path (and name); `exclude_seasons` is
+    # a set of season numbers detected from the path (e.g. S06E01, "Season 6").
+    exclude: tuple[str, ...] = ()
+    exclude_seasons: frozenset[int] = frozenset()
 
     def __post_init__(self) -> None:
         if self.number < 0:
@@ -186,9 +191,45 @@ def _parse_channels(raw: Any, base: Optional[Path], default_shuffle: bool) -> Li
                 name=str(name),
                 path=_as_path(entry["path"], base),
                 shuffle=bool(entry.get("shuffle", default_shuffle)),
+                exclude=_parse_str_list(entry.get("exclude"), "exclude"),
+                exclude_seasons=_parse_seasons(entry.get("exclude_seasons")),
             )
         )
     return channels
+
+
+def _parse_str_list(raw: Any, name: str) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        return (raw,)
+    if isinstance(raw, list):
+        return tuple(str(x) for x in raw)
+    raise ConfigError(f"'{name}' must be a string or a list of strings")
+
+
+def _parse_seasons(raw: Any) -> frozenset[int]:
+    """Parse season numbers from an int, a 'start-end' range, or a list of those."""
+    if raw is None:
+        return frozenset()
+    items = raw if isinstance(raw, list) else [raw]
+    seasons: set[int] = set()
+    for item in items:
+        if isinstance(item, int):
+            seasons.add(item)
+        elif isinstance(item, str) and "-" in item:
+            lo_s, hi_s = item.split("-", 1)
+            try:
+                lo, hi = int(lo_s), int(hi_s)
+            except ValueError as exc:
+                raise ConfigError(f"invalid season range '{item}'") from exc
+            seasons.update(range(min(lo, hi), max(lo, hi) + 1))
+        else:
+            try:
+                seasons.add(int(item))
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(f"invalid season number '{item}'") from exc
+    return frozenset(seasons)
 
 
 def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -> Config:
