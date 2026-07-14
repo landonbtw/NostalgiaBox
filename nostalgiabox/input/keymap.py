@@ -53,9 +53,11 @@ _EVDEV_ACTIONS: Dict[str, InputEvent] = {
     "KEY_LAST": InputEvent(Action.LAST_CHANNEL),
     "KEY_PREVIOUS": InputEvent(Action.LAST_CHANNEL),
     "KEY_BACK": InputEvent(Action.LAST_CHANNEL),
+    "KEY_L": InputEvent(Action.LAST_CHANNEL),
     # Power / standby.
     "KEY_POWER": InputEvent(Action.POWER),
     "KEY_SLEEP": InputEvent(Action.POWER),
+    "KEY_P": InputEvent(Action.POWER),
     # Quit the application (mostly for keyboards during setup).
     "KEY_ESC": InputEvent(Action.QUIT),
     "KEY_Q": InputEvent(Action.QUIT),

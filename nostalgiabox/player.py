@@ -82,6 +82,8 @@ class MpvPlayer(Player):
         *,
         fullscreen: bool = True,
         hwdec: str = "auto-safe",
+        glsl_shaders: Optional[str] = None,
+        fonts_dir: Optional[Path] = None,
         extra_options: Optional[dict] = None,
     ) -> None:
         try:
@@ -93,6 +95,11 @@ class MpvPlayer(Player):
                 "is present (`sudo apt install libmpv2 mpv`)."
             ) from exc
 
+        # Make our bundled retro font discoverable by libass (used for the OSD
+        # overlays) by dropping it into mpv's config "fonts" directory.
+        if fonts_dir is not None:
+            _install_fonts_for_mpv(fonts_dir)
+
         options = dict(
             # We drive the OSD ourselves, so disable mpv's own on-screen
             # controller and default keybindings.
@@ -103,37 +110,65 @@ class MpvPlayer(Player):
             # drops to a console/desktop between episodes or on an empty channel.
             idle="yes",
             force_window="yes",
-            keep_open="no",
+            # keep-open=yes means a file that reaches its end PAUSES on the last
+            # frame and sets the "eof-reached" property instead of silently
+            # unloading. We watch that property to roll the next episode. This
+            # avoids a nasty race: replacing a file (on a channel change) also
+            # fires an "end-file" event for the outgoing file, and its reason is
+            # unreliable across mpv versions - reacting to it caused episodes to
+            # be skipped or the picture to hang. "eof-reached" only ever trips on
+            # a genuine end-of-file, so it is the robust signal.
+            keep_open="yes",
             fullscreen=fullscreen,
             # Hardware decode + a sensible video output for the Pi. gpu with the
             # drm context works headless on the Pi 4; libmpv falls back sanely.
             hwdec=hwdec,
+            # 4:3 shows should be pillarboxed (not stretched) inside the frame.
+            keepaspect="yes",
+            video_unscaled="no",
             # Hide the mouse cursor - this is a TV, not a computer.
             cursor_autohide="always",
             # A pleasant, readable OSD font size relative to the window.
             osd_font_size=40,
         )
+        if glsl_shaders:
+            # The CRT curvature/vignette/scanline shader (see nostalgiabox.crt).
+            options["glsl_shaders"] = glsl_shaders
         if extra_options:
             options.update(extra_options)
 
         self._mpv = mpv.MPV(**options)
         self._closed = False
-        self._suppress_end = False  # set while we deliberately stop playback
+        # True while a looping filler clip (static / colour bars) is showing, so
+        # its (non-)ending never advances the channel.
+        self._suppress = True
+
+        @self._mpv.property_observer("eof-reached")
+        def _on_eof(_name, value):  # pragma: no cover - needs libmpv + media
+            if value and not self._suppress and self.on_end is not None:
+                try:
+                    self.on_end(END_EOF)
+                except Exception:  # noqa: BLE001 - never let a callback kill mpv
+                    log.exception("error in on_end (eof) callback")
 
         @self._mpv.event_callback("end-file")
         def _on_end_file(event):  # pragma: no cover - needs libmpv + media
-            reason = _extract_end_reason(event)
-            if reason == END_STOPPED or self._suppress_end:
+            # We only care about *errors* here (e.g. a corrupt/missing file) so
+            # we can skip to the next episode. Natural ends are handled by the
+            # eof-reached observer above; intentional stops/replacements are
+            # ignored.
+            if self._suppress:
                 return
-            if self.on_end is not None:
+            if _extract_end_reason(event) == END_ERROR and self.on_end is not None:
                 try:
-                    self.on_end(reason)
-                except Exception:  # noqa: BLE001 - never let a callback kill mpv
-                    log.exception("error in on_end callback")
+                    self.on_end(END_ERROR)
+                except Exception:  # noqa: BLE001
+                    log.exception("error in on_end (error) callback")
 
     # -- playback -----------------------------------------------------------
     def play(self, path: Path, *, start: float = 0.0) -> None:
-        self._suppress_end = False
+        # Enable end detection only for real content.
+        self._suppress = False
         try:
             self._mpv.loop_file = "no"
             if start and start > 0:
@@ -141,21 +176,23 @@ class MpvPlayer(Player):
                 self._mpv.loadfile(str(path), "replace", start=f"+{start:.3f}")
             else:
                 self._mpv.loadfile(str(path), "replace")
+            self._mpv.pause = False  # keep-open can leave us paused; force play
         except Exception:  # noqa: BLE001
             log.exception("failed to play %s", path)
             if self.on_end is not None:
                 self.on_end(END_ERROR)
 
     def play_loop(self, path: Path) -> None:
-        self._suppress_end = True  # a looping clip should never trigger "next"
+        self._suppress = True  # a looping clip should never trigger "next"
         try:
             self._mpv.loop_file = "inf"
             self._mpv.loadfile(str(path), "replace")
+            self._mpv.pause = False
         except Exception:  # noqa: BLE001
             log.exception("failed to loop %s", path)
 
     def stop(self) -> None:
-        self._suppress_end = True
+        self._suppress = True
         try:
             self._mpv.command("stop")
         except Exception:  # noqa: BLE001 - stopping should never crash us
@@ -310,6 +347,30 @@ def _extract_end_reason(event) -> str:  # pragma: no cover - libmpv specific
         return END_STOPPED
     # Unknown/redirect reasons: treat as a natural end so the channel keeps going.
     return END_EOF
+
+
+def _install_fonts_for_mpv(fonts_dir: Path) -> None:
+    """Copy bundled .ttf fonts into mpv's config 'fonts' dir so libass finds them.
+
+    mpv automatically loads any fonts placed in ``<mpv config dir>/fonts``, which
+    is the most reliable way to make our retro OSD font available to the ASS
+    overlays without touching the system-wide fontconfig setup.
+    """
+    import os
+    import shutil
+
+    if not fonts_dir.is_dir():
+        return
+    config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    dest = Path(config_home) / "mpv" / "fonts"
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        for ttf in fonts_dir.glob("*.ttf"):
+            target = dest / ttf.name
+            if not target.exists():
+                shutil.copy2(ttf, target)
+    except OSError:
+        log.debug("could not install bundled fonts for mpv", exc_info=True)
 
 
 def _strip_ass(ass: str) -> str:  # pragma: no cover - trivial

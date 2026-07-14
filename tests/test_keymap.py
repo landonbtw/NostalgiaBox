@@ -22,6 +22,12 @@ def test_evdev_digits():
     assert ev.action == Action.DIGIT and ev.value == 0
 
 
+def test_evdev_power_and_last_letters():
+    assert evdev_key_to_event("KEY_P").action == Action.POWER
+    assert evdev_key_to_event("KEY_L").action == Action.LAST_CHANNEL
+    assert evdev_key_to_event("KEY_POWER").action == Action.POWER
+
+
 def test_evdev_unknown_key():
     assert evdev_key_to_event("KEY_FLIBBERTIGIBBET") is None
 
