@@ -74,6 +74,58 @@ def evdev_key_to_event(key_name: str) -> Optional[InputEvent]:
     return _EVDEV_ACTIONS.get(key_name)
 
 
+# Named actions usable in config `key_overrides` (maps a key -> one of these).
+_ACTION_BY_NAME: Dict[str, InputEvent] = {
+    "channel_up": InputEvent(Action.CHANNEL_UP),
+    "channel_down": InputEvent(Action.CHANNEL_DOWN),
+    "volume_up": InputEvent(Action.VOLUME_UP),
+    "volume_down": InputEvent(Action.VOLUME_DOWN),
+    "mute": InputEvent(Action.MUTE),
+    "enter": InputEvent(Action.ENTER),
+    "ok": InputEvent(Action.ENTER),
+    "select": InputEvent(Action.ENTER),
+    "info": InputEvent(Action.INFO),
+    "last_channel": InputEvent(Action.LAST_CHANNEL),
+    "last": InputEvent(Action.LAST_CHANNEL),
+    "power": InputEvent(Action.POWER),
+    "quit": InputEvent(Action.QUIT),
+    "none": None,  # explicitly unbind a key
+}
+
+
+def action_names() -> tuple[str, ...]:
+    return tuple(_ACTION_BY_NAME)
+
+
+def parse_key_overrides(raw: object) -> Dict[str, Optional[InputEvent]]:
+    """Turn a config ``{KEY_NAME: action_name}`` mapping into key -> InputEvent.
+
+    Keys are normalised to evdev names (``f5`` / ``KEY_F5`` both work; a bare
+    name gets the ``KEY_`` prefix). Digits use ``digit_0`` .. ``digit_9``.
+    Unknown action names raise so typos are caught by ``--check``.
+    """
+    result: Dict[str, Optional[InputEvent]] = {}
+    if not raw:
+        return result
+    if not isinstance(raw, dict):
+        raise ValueError("'key_overrides' must be a mapping of KEY_NAME: action")
+    for key, action in raw.items():
+        kname = str(key).strip().upper()
+        if not kname.startswith("KEY_"):
+            kname = "KEY_" + kname
+        aname = str(action).strip().lower()
+        if aname.startswith("digit_") and aname[6:].isdigit():
+            result[kname] = InputEvent.digit(int(aname[6:]))
+            continue
+        if aname not in _ACTION_BY_NAME:
+            raise ValueError(
+                f"unknown action '{action}' for key '{key}'. "
+                f"Valid actions: {', '.join(_ACTION_BY_NAME)} (or digit_0..digit_9)"
+            )
+        result[kname] = _ACTION_BY_NAME[aname]
+    return result
+
+
 # --------------------------------------------------------------------------
 # stdin characters -> evdev key names (so they reuse the map above)
 # --------------------------------------------------------------------------
@@ -161,4 +213,6 @@ __all__ = [
     "stdin_char_to_event",
     "stdin_escape_to_event",
     "cec_key_to_event",
+    "parse_key_overrides",
+    "action_names",
 ]

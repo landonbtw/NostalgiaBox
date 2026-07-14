@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import logging
 import select
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
+from ..actions import InputEvent
 from .base import InputBackend
 from .keymap import evdev_key_to_event
 
@@ -35,13 +36,22 @@ class KeyboardBackend(InputBackend):
         name_filter: Optional[str] = None,
         grab: bool = False,
         allow_repeat: bool = True,
+        overrides: Optional[Dict[str, Optional[InputEvent]]] = None,
     ) -> None:
         super().__init__()
         self._device_paths = list(device_paths) if device_paths else None
         self._name_filter = name_filter.lower() if name_filter else None
         self._grab = grab
         self._allow_repeat = allow_repeat
+        # Per-key action overrides from config (key name -> InputEvent or None).
+        self._overrides = dict(overrides or {})
         self._devices: List = []
+
+    def _lookup(self, key_name: str) -> Optional[InputEvent]:
+        """Config overrides win over the built-in defaults."""
+        if key_name in self._overrides:
+            return self._overrides[key_name]  # may be None (explicitly unbound)
+        return evdev_key_to_event(key_name)
 
     @staticmethod
     def is_available() -> bool:
@@ -122,7 +132,7 @@ class KeyboardBackend(InputBackend):
         key_name = _code_to_name(ecodes.KEY, event.code)
         if key_name is None:
             return
-        input_event = evdev_key_to_event(key_name)
+        input_event = self._lookup(key_name)
         if input_event is None:
             return
         # Only volume/channel keys should auto-repeat when held; ignore repeats

@@ -1,7 +1,10 @@
+import pytest
+
 from nostalgiabox.actions import Action
 from nostalgiabox.input.keymap import (
     cec_key_to_event,
     evdev_key_to_event,
+    parse_key_overrides,
     stdin_char_to_event,
     stdin_escape_to_event,
 )
@@ -47,6 +50,46 @@ def test_stdin_arrows():
     assert stdin_escape_to_event("[C").action == Action.VOLUME_UP
     assert stdin_escape_to_event("[D").action == Action.VOLUME_DOWN
     assert stdin_escape_to_event("[Z") is None
+
+
+def test_parse_key_overrides_basic():
+    ov = parse_key_overrides({"KEY_F5": "volume_up", "KEY_DOT": "volume_down"})
+    assert ov["KEY_F5"].action == Action.VOLUME_UP
+    assert ov["KEY_DOT"].action == Action.VOLUME_DOWN
+
+
+def test_parse_key_overrides_normalises_names():
+    # bare names get the KEY_ prefix and are upper-cased
+    ov = parse_key_overrides({"f5": "channel_up", "pageup": "channel_down"})
+    assert ov["KEY_F5"].action == Action.CHANNEL_UP
+    assert ov["KEY_PAGEUP"].action == Action.CHANNEL_DOWN
+
+
+def test_parse_key_overrides_digit_and_none():
+    ov = parse_key_overrides({"KEY_KP5": "digit_5", "KEY_ESC": "none"})
+    assert ov["KEY_KP5"].value == 5
+    assert ov["KEY_ESC"] is None  # explicitly unbound
+
+
+def test_parse_key_overrides_rejects_bad_action():
+    with pytest.raises(ValueError, match="unknown action"):
+        parse_key_overrides({"KEY_F5": "explode"})
+
+
+def test_parse_key_overrides_empty():
+    assert parse_key_overrides(None) == {}
+    assert parse_key_overrides({}) == {}
+
+
+def test_keyboard_backend_override_precedence():
+    from nostalgiabox.input.keyboard import KeyboardBackend
+
+    ov = parse_key_overrides({"KEY_F5": "volume_up", "KEY_ESC": "none"})
+    kb = KeyboardBackend(overrides=ov)
+    assert kb._lookup("KEY_F5").action == Action.VOLUME_UP     # override applied
+    assert kb._lookup("KEY_ESC") is None                       # explicitly unbound
+    assert kb._lookup("KEY_VOLUMEUP").action == Action.VOLUME_UP  # default intact
+    assert kb._lookup("KEY_PAGEUP").action == Action.CHANNEL_UP
 
 
 def test_cec_keys():

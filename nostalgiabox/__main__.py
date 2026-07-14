@@ -36,9 +36,20 @@ def _find_config(explicit: Optional[str]) -> Path:
 
 def _cmd_check(config: Config) -> int:
     """Validate the config and print the resulting channel lineup."""
+    # Surface bad key_overrides here so typos are caught before running.
+    from .input.keymap import parse_key_overrides
+
+    try:
+        overrides = parse_key_overrides(config.input_options.get("key_overrides"))
+    except ValueError as exc:
+        print(f"configuration error: {exc}")
+        return 2
+
     lineup = build_lineup(config)
     print(f"NostalgiaBox v{__version__} - configuration OK")
     print(f"tune-in mode: {config.tune_in}")
+    if overrides:
+        print(f"key overrides: {len(overrides)} configured")
     print(f"channels ({len(lineup)}):")
     total = 0
     for channel in lineup:

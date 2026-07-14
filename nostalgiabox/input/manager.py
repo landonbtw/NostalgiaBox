@@ -79,13 +79,20 @@ def create_backends(options: Optional[Dict] = None) -> List[InputBackend]:
 
     if options.get("keyboard", True):
         from .keyboard import KeyboardBackend
+        from .keymap import parse_key_overrides
 
+        try:
+            overrides = parse_key_overrides(options.get("key_overrides"))
+        except ValueError as exc:
+            log.error("ignoring invalid key_overrides: %s", exc)
+            overrides = {}
         if KeyboardBackend.is_available():
             backends.append(
                 KeyboardBackend(
                     device_paths=options.get("keyboard_devices"),
                     name_filter=options.get("keyboard_name_filter"),
                     grab=bool(options.get("keyboard_grab", False)),
+                    overrides=overrides,
                 )
             )
         else:

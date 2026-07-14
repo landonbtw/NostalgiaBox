@@ -152,6 +152,25 @@ Direct entry: type a channel number and it tunes after a short pause (or press
 OK/Enter immediately). If the channel doesn't exist you get a brief "NO CHANNEL"
 message.
 
+### Remapping buttons (odd remotes)
+
+Any remote that shows up as a keyboard can be remapped in `config.yaml`. Find a
+button's key name with `sudo evtest`, then map it to an action:
+
+```yaml
+input:
+  key_overrides:
+    KEY_PAGEUP: channel_up      # e.g. a presenter remote's back button
+    KEY_PAGEDOWN: channel_down
+    KEY_F5: volume_up
+    KEY_DOT: volume_down
+```
+
+Actions: `channel_up`, `channel_down`, `volume_up`, `volume_down`, `mute`,
+`enter`, `info`, `last_channel`, `power`, `quit`, `digit_0`..`digit_9`, or `none`
+to unbind. Overrides win over the built-in defaults; `nostalgiabox --check`
+validates them.
+
 ---
 
 ## Configuration reference (highlights)

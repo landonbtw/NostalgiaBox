@@ -119,3 +119,13 @@ input:
   # keyboard_name_filter: "remote"   # only listen to devices whose name matches
   # keyboard_devices: ["/dev/input/event0"]  # or pin exact devices
   # keyboard_grab: false             # true = stop keystrokes leaking to console
+
+  # Map specific keys to actions (handy for odd remotes). Find a button's key
+  # name with `sudo evtest`. Actions: channel_up, channel_down, volume_up,
+  # volume_down, mute, enter, info, last_channel, power, quit, digit_0..digit_9,
+  # or none (to unbind). Example for a Logitech R400 presenter:
+  # key_overrides:
+  #   KEY_PAGEUP: channel_up      # left  (<) arrow
+  #   KEY_PAGEDOWN: channel_down  # right (>) arrow
+  #   KEY_F5: volume_up           # start-presentation button
+  #   KEY_DOT: volume_down        # blank-screen button
