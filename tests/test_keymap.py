@@ -58,6 +58,14 @@ def test_parse_key_overrides_basic():
     assert ov["KEY_DOT"].action == Action.VOLUME_DOWN
 
 
+def test_parse_key_overrides_mute_and_shutdown():
+    ov = parse_key_overrides({"KEY_ENTER": "mute", "KEY_BACK": "power_off"})
+    assert ov["KEY_ENTER"].action == Action.MUTE
+    assert ov["KEY_BACK"].action == Action.POWER_OFF
+    # "shutdown" is an alias for power_off
+    assert parse_key_overrides({"KEY_BACK": "shutdown"})["KEY_BACK"].action == Action.POWER_OFF
+
+
 def test_parse_key_overrides_normalises_names():
     # bare names get the KEY_ prefix and are upper-cased
     ov = parse_key_overrides({"f5": "channel_up", "pageup": "channel_down"})

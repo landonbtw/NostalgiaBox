@@ -27,6 +27,7 @@ class Action(Enum):
     INFO = auto()           # re-show the channel banner
     LAST_CHANNEL = auto()   # jump back to the previously watched channel
     POWER = auto()          # toggle standby (blank screen)
+    POWER_OFF = auto()      # cleanly shut the whole Pi down (safe to unplug)
     QUIT = auto()           # shut the application down entirely
 
 

@@ -95,6 +95,24 @@ def test_volume_down_at_zero_powers_off(tmp_path):
     assert player.current is None   # playback stopped
 
 
+def test_power_off_action_shuts_down(tmp_path):
+    app, player, _ = build_app(tmp_path)
+    app.start()
+    send(app, Action.POWER_OFF)   # e.g. a remote button mapped to power_off
+    assert app.powered_off is True
+    assert app._running is False
+    assert player.current is None
+
+
+def test_power_off_action_works_in_standby(tmp_path):
+    app, player, _ = build_app(tmp_path)
+    app.start()
+    send(app, Action.POWER)       # into standby
+    assert app.standby
+    send(app, Action.POWER_OFF)   # shutdown still works from standby
+    assert app.powered_off is True
+
+
 def test_power_off_disabled(tmp_path):
     app, player, _ = build_app(
         tmp_path, initial_volume=0, power_off_on_min_volume=False

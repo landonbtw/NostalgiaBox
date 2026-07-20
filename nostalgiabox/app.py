@@ -195,6 +195,9 @@ class TVApp:
         if action == Action.QUIT:
             self._running = False
             return
+        if action == Action.POWER_OFF:
+            self._power_off()
+            return
         if action == Action.POWER:
             self._toggle_standby()
             return

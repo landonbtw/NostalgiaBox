@@ -139,8 +139,9 @@ input:
 
   # Map specific keys to actions (handy for odd remotes). Find a button's key
   # name with `sudo evtest`. Actions: channel_up, channel_down, volume_up,
-  # volume_down, mute, enter, info, last_channel, power, quit, digit_0..digit_9,
-  # or none (to unbind). Example for a Logitech R400 presenter. NOTE: its
+  # volume_down, mute, enter, info, last_channel, power (standby), power_off
+  # (clean shutdown), quit, digit_0..digit_9, or none (to unbind).
+  # Example for a Logitech R400 presenter. NOTE: its
   # play-screen button sends Escape (the quit key!), so remap KEY_ESC too or it
   # will shut the box off.
   # key_overrides:

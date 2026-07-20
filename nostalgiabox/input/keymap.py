@@ -88,6 +88,8 @@ _ACTION_BY_NAME: Dict[str, InputEvent] = {
     "last_channel": InputEvent(Action.LAST_CHANNEL),
     "last": InputEvent(Action.LAST_CHANNEL),
     "power": InputEvent(Action.POWER),
+    "power_off": InputEvent(Action.POWER_OFF),
+    "shutdown": InputEvent(Action.POWER_OFF),
     "quit": InputEvent(Action.QUIT),
     "none": None,  # explicitly unbind a key
 }
