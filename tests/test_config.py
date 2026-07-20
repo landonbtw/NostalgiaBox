@@ -23,6 +23,21 @@ def test_explicit_channels(tmp_path):
     assert cfg.tune_in == "random"  # default
 
 
+def test_channel_loop_flag(tmp_path):
+    make_show(tmp_path, "a", 1)
+    make_show(tmp_path, "b", 1)
+    cfg = config_from_dict(
+        {
+            "channels": [
+                {"number": 2, "name": "Loop", "path": str(tmp_path / "a"), "loop": True},
+                {"number": 3, "name": "Normal", "path": str(tmp_path / "b")},
+            ]
+        }
+    )
+    assert cfg.channels[0].loop is True
+    assert cfg.channels[1].loop is False
+
+
 def test_channel_number_and_name_defaults(tmp_path):
     make_show(tmp_path, "magic_school_bus", 1)
     data = {"channels": [{"path": str(tmp_path / "magic_school_bus")}]}

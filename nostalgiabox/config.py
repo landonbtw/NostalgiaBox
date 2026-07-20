@@ -73,6 +73,10 @@ class ChannelConfig:
     name: str
     path: Path
     shuffle: bool = True
+    # Loop this channel's clip(s) continuously. A single clip loops seamlessly;
+    # multiple clips cycle and repeat. Ignores start_offset and the channel-change
+    # bridge (used for looping mock-up / filler channels).
+    loop: bool = False
     # Episodes to leave out. `exclude` is a list of case-insensitive glob
     # patterns matched against each file's path (and name); `exclude_seasons` is
     # a set of season numbers detected from the path (e.g. S06E01, "Season 6").
@@ -203,6 +207,7 @@ def _parse_channels(raw: Any, base: Optional[Path], default_shuffle: bool) -> Li
                 name=str(name),
                 path=_as_path(entry["path"], base),
                 shuffle=bool(entry.get("shuffle", default_shuffle)),
+                loop=bool(entry.get("loop", False)),
                 exclude=_parse_str_list(entry.get("exclude"), "exclude"),
                 exclude_seasons=_parse_seasons(entry.get("exclude_seasons")),
             )

@@ -252,6 +252,38 @@ def test_start_offset_range_applied(tmp_path):
     assert 6.0 <= player.played[-1][1] <= 10.0
 
 
+def _loop_app(tmp_path, clips=1):
+    (tmp_path / "honey").mkdir()
+    for i in range(clips):
+        (tmp_path / "honey" / f"clip{i}.mp4").write_bytes(b"")
+    make_show(tmp_path, "rabbit", 1)
+    config = config_from_dict(
+        {
+            "start_offset": [6, 10],  # would apply to non-loop channels
+            "channels": [
+                {"number": 2, "name": "Honey Bear", "path": str(tmp_path / "honey"), "loop": True},
+                {"number": 3, "name": "Rabbit", "path": str(tmp_path / "rabbit"), "loop": True},
+            ],
+        }
+    )
+    return TVApp(config, MockPlayer(), InputManager([]), clock=FakeClock())
+
+
+def test_loop_single_clip_channel_loops_from_zero(tmp_path):
+    app = _loop_app(tmp_path, clips=1)
+    app.start()  # starts on Honey Bear (ch 2)
+    assert app.player.looping is not None            # single clip is looping
+    assert app.player.played == []                   # not played via normal play()
+    assert "Honey Bear" in app.player.overlays.get(1, "")
+
+
+def test_loop_channel_ignores_start_offset(tmp_path):
+    app = _loop_app(tmp_path, clips=2)  # multiple clips -> normal play + advance
+    app.start()
+    # loop channels always start at 0, never the 6-10s offset
+    assert app.player.played[-1][1] == 0.0
+
+
 def test_empty_channel_shows_no_signal(tmp_path):
     (tmp_path / "dragon").mkdir()
     make_show(tmp_path, "arthur", 2)

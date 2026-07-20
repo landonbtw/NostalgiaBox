@@ -196,6 +196,10 @@ class Channel:
     def is_empty(self) -> bool:
         return not self.episodes
 
+    @property
+    def loop(self) -> bool:
+        return self.config.loop
+
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"<Channel {self.number} {self.name!r} ({len(self.episodes)} eps)>"
 
@@ -335,13 +339,16 @@ def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> Chan
             ch_rng = random.Random(hash((config.shuffle_seed, ch_cfg.number, i)) & 0xFFFFFFFF)
         else:
             ch_rng = random.Random()
+        # Looping channels always start at 0 (no random offset into the clip).
+        offset_min = 0.0 if ch_cfg.loop else config.start_offset_min
+        offset_max = 0.0 if ch_cfg.loop else config.start_offset_max
         channels.append(
             Channel(
                 ch_cfg,
                 episodes,
                 tune_in=config.tune_in,
-                start_offset_min=config.start_offset_min,
-                start_offset_max=config.start_offset_max,
+                start_offset_min=offset_min,
+                start_offset_max=offset_max,
                 rng=ch_rng,
             )
         )

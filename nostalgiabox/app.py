@@ -272,6 +272,21 @@ class TVApp:
             self._show_no_signal(channel)
             return
 
+        if channel.loop:
+            # Looping channel: play the clip(s) continuously, no offset/bridge.
+            self._switch_deadline = None
+            self._pending_banner = None
+            self.overlay.show_channel_bug(channel.number, channel.name)
+            self._playing_path = request.path
+            if len(channel.episodes) == 1:
+                # A single clip loops seamlessly (no reload gap).
+                self.player.play_loop(request.path)
+            else:
+                # Multiple clips cycle; advance() (which loops the set) handles
+                # rolling to the next one when each ends.
+                self._play_request(request)
+            return
+
         if not show_static:
             # Not a channel change (first tune / waking from standby): play now.
             self._switch_deadline = None
