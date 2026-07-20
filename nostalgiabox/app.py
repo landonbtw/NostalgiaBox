@@ -356,7 +356,7 @@ class TVApp:
 
     def _power_off(self) -> None:
         """Cleanly shut the Pi down so it's safe to unplug."""
-        log.info("powering off (volume floor)")
+        log.info("powering off")
         self.powered_off = True
         self._switch_deadline = None
         self._pending_banner = None
@@ -366,17 +366,30 @@ class TVApp:
             self.player.stop()
         except Exception:  # noqa: BLE001
             pass
-        self._run_power_off_command()
-        self._running = False  # exit the main loop
+        # Ask the system to shut down, then just keep running until the OS
+        # terminates us. We deliberately do NOT exit the loop ourselves - exiting
+        # makes systemd restart the service (which looked like "it turned back
+        # on"). If the shutdown command fails, recover instead of getting stuck.
+        if not self._run_power_off_command():
+            log.error("power-off command failed; resuming")
+            self.powered_off = False
+            self.overlay.clear_all()
+            self.overlay.show_message("POWER OFF FAILED", duration=4.0)
+            self.tune_current(show_static=False)
 
-    def _run_power_off_command(self) -> None:
+    def _run_power_off_command(self) -> bool:
         command = list(self.config.power_off_command)
         if not command:
-            return  # disabled / test mode
+            return True  # disabled / test mode
         try:
-            subprocess.Popen(command)
+            result = subprocess.run(command, timeout=15)
         except Exception:  # noqa: BLE001
             log.exception("power-off command failed: %s", command)
+            return False
+        if result.returncode != 0:
+            log.error("power-off command exited %s: %s", result.returncode, command)
+            return False
+        return True
 
     def _toggle_mute(self) -> None:
         self.muted = not self.muted

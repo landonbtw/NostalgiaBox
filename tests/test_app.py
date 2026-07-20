@@ -91,8 +91,7 @@ def test_volume_down_at_zero_powers_off(tmp_path):
     assert app.volume == 0 and not app.powered_off
     send(app, Action.VOLUME_DOWN)   # one more at 0 -> power off
     assert app.powered_off is True
-    assert app._running is False
-    assert player.current is None   # playback stopped
+    assert player.current is None   # playback stopped (system shutdown takes over)
 
 
 def test_power_off_action_shuts_down(tmp_path):
@@ -100,7 +99,6 @@ def test_power_off_action_shuts_down(tmp_path):
     app.start()
     send(app, Action.POWER_OFF)   # e.g. a remote button mapped to power_off
     assert app.powered_off is True
-    assert app._running is False
     assert player.current is None
 
 
