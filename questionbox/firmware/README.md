@@ -8,25 +8,33 @@ Built on top of Waveshare's official demo drivers, so the display and touch are
 proven hardware bring-up — we don't drive the panel from scratch. Uses
 **Arduino + PlatformIO**.
 
-## What works in Stage 2
+## What works in Stage 3
 
-- The animated **face** on the round screen, with all five looks:
-  - **IDLE** — gentle blinking, soft smile (ready and calm)
-  - **LISTENING** — wide eyes and a pulsing ring
-  - **THINKING** — eyes glance up while three dots bounce (a charming wait)
-  - **SPEAKING** — the mouth opens and closes like it's talking
-  - **SPELLING** — a word shown one big letter at a time
-- A tappable **microphone button** (push-to-talk only — the mic never listens
-  on its own).
+The real **device↔server loop** (with a hardcoded test answer from the server):
 
-There is **no Wi-Fi, server, or audio yet** (those are Stage 3+). So you can see
-every face without a server, tapping the mic walks through the states:
+1. Tap the mic (**IDLE → LISTENING**) — starts recording from the I2S mic.
+2. Tap again, or just stop talking (**auto-stop on silence**) — the device
+   builds a WAV and **POSTs it to the server** (`/api/ask`), showing **THINKING**.
+3. The server returns audio + text; the device plays the audio out the speaker
+   while showing **SPEAKING** (or **SPELLING**, letter by letter, for spelling
+   answers), then returns to **IDLE**.
 
-| You tap… | What happens |
-|---|---|
-| the mic while **IDLE** | goes to **LISTENING** (button turns coral) |
-| the mic while **LISTENING** | **THINKING → SPEAKING → SPELLING "WONDER" → IDLE** |
-| the mic any other time | calmly returns to **IDLE** |
+The animated **face** has all five looks (IDLE / LISTENING / THINKING /
+SPEAKING / SPELLING), designed for the round screen. Push-to-talk only — the
+mic never listens on its own. **Audio is recorded, sent, and discarded — never
+stored** on the device.
+
+### Before it can talk: set up `secrets.h`
+
+Copy `include/secrets.h.example` to `include/secrets.h` and fill in your
+2.4GHz Wi-Fi, your server URL, and a device token (the same token you set in the
+server's environment). `secrets.h` is gitignored and never committed. Without
+it the firmware still builds, but it won't connect.
+
+> **Security note:** by default the device uses TLS *without* certificate
+> validation (`WB_TLS_INSECURE=1`) so it works out of the box — the connection
+> is encrypted but not authenticated. To harden, set `WB_TLS_INSECURE 0` and
+> paste your server's root CA into `src/net/wonder_client.cpp`.
 
 ## Hardware pins (from the Waveshare wiki, for reference)
 
@@ -77,6 +85,12 @@ firmware/
     ├── ui/
     │   ├── face.*        the animated face + all five states
     │   └── mic_button.*  the tap-to-talk button
+    ├── audio/
+    │   ├── mic.*         I2S mic recording -> WAV (silence auto-stop)
+    │   └── speaker.*     stream WAV answer -> PCM5101 speaker
+    ├── net/
+    │   ├── wifi_conn.*   Wi-Fi connect
+    │   └── wonder_client.*  HTTPS POST to /api/ask + header parsing
     └── app/
         └── wonderbox_state.h   the shared state enum
 ```
