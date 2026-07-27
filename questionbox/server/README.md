@@ -74,6 +74,23 @@ header `Authorization: Bearer <DEVICE_TOKEN>`.
 We return audio as the body + text in headers so the microcontroller doesn't
 have to parse JSON or decode base64.
 
+## Parent dashboard (Stage 6)
+
+Private, password-protected pages for you only:
+
+- **`/login`** — sign in with your `DASHBOARD_PASSWORD`.
+- **`/dashboard`** — today's summary (answered / deferred / refused + topics).
+- **`/dashboard/log`** — the full question log, pick any day, search text.
+- **`/dashboard/rules`** — edit the approved/blocked topic rules (add, edit
+  patterns, enable/disable, delete) — changes take effect within ~30s.
+
+**Auth:** a single password (`DASHBOARD_PASSWORD`) with a signed, HttpOnly,
+Secure session cookie — no email/SMTP needed. Set `DASHBOARD_PASSWORD` (and
+optionally `DASHBOARD_SESSION_SECRET`) in your env. Dashboard data is read on the
+server with the Supabase service role *after* the session check, so the data is
+never exposed to the browser via the public key. (Can be upgraded to
+Supabase-Auth magic links locked to your email if you prefer.)
+
 ## Run it locally
 
 ```bash

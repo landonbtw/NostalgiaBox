@@ -19,7 +19,7 @@ interface RuleRow {
 const CACHE_TTL_MS = 30_000;
 let cache: { rules: SafetyRules; at: number } | null = null;
 
-function rulesToRows(rules: SafetyRules): RuleRow[] {
+export function rulesToRows(rules: SafetyRules): RuleRow[] {
   const rows: RuleRow[] = [];
   const push = (kind: RuleRow["kind"], list: TopicRule[]) =>
     list.forEach((r, i) =>
@@ -78,7 +78,19 @@ export async function getRules(): Promise<SafetyRules> {
   }
 }
 
-/** For tests: clear the in-memory cache. */
+/** Seeds the topic_rules table with the defaults if it is empty. Safe to call
+ *  repeatedly. Used by the dashboard so the editor is populated on first visit. */
+export async function ensureRulesSeeded(): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const db = getSupabaseAdmin();
+  const { count, error } = await db.from("topic_rules").select("id", { count: "exact", head: true });
+  if (error) throw error;
+  if ((count ?? 0) === 0) {
+    await db.from("topic_rules").upsert(rulesToRows(DEFAULT_RULES), { onConflict: "kind,rule_key" });
+  }
+}
+
+/** Invalidate the in-memory cache after a rules edit (or in tests). */
 export function _clearRulesCache(): void {
   cache = null;
 }
