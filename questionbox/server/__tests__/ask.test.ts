@@ -3,9 +3,11 @@ import { ANSWER_HEADERS } from "@/lib/answer";
 
 const TOKEN = "test-device-token-1234567890";
 
-// The route reads DEVICE_TOKEN from the environment at request time.
+// The route reads env at request time. No OpenAI key here, so /api/ask uses its
+// friendly keyless fallback (returns a "not set up" message + chime WAV).
 beforeAll(() => {
   process.env.DEVICE_TOKEN = TOKEN;
+  delete process.env.OPENAI_API_KEY;
 });
 
 async function importRoute() {
@@ -38,7 +40,8 @@ describe("POST /api/ask (Stage 3 contract)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("audio/wav");
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(res.headers.get(ANSWER_HEADERS.mode)).toBe("answered");
+    // Without an OpenAI key the route defers with a friendly setup message.
+    expect(res.headers.get(ANSWER_HEADERS.mode)).toBe("deferred");
     expect(res.headers.get(ANSWER_HEADERS.isSpelling)).toBe("0");
 
     const text = decodeURIComponent(res.headers.get(ANSWER_HEADERS.text) ?? "");

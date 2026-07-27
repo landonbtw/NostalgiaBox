@@ -1,11 +1,11 @@
 /*****************************************************************************
- * WonderBox firmware - Stage 3: the real device <-> server loop.
+ * WonderBox firmware - Stage 4: real pipeline (animated THINKING).
  *
- * Tap the mic to record a question; tap again (or stop on silence) to send it.
- * The device POSTs the audio to the WonderBox server (/api/ask), gets back
- * spoken audio + answer text, and plays it while showing the SPEAKING (or
- * SPELLING) face. In Stage 3 the server returns a hardcoded test answer; the
- * real STT -> safety -> LLM -> TTS pipeline arrives in Stage 4.
+ * Same loop as Stage 3, but the server now runs the real speech-to-text ->
+ * safety -> LLM -> text-to-speech pipeline, which takes a few seconds. So the
+ * HTTPS request runs on a background task (core 0) while the main loop (core 1)
+ * keeps LVGL + the face animation alive - the THINKING dots bounce during the
+ * wait, and the SPEAKING mouth moves during playback.
  *
  * PUSH-TO-TALK ONLY. Audio is recorded, sent, and discarded - never stored.
  *****************************************************************************/
@@ -25,6 +25,13 @@
 #include "mic.h"
 #include "speaker.h"
 
+// ---- Background request handoff ----
+enum ReqStatus { REQ_IDLE, REQ_RUNNING, REQ_DONE, REQ_FAILED };
+static volatile ReqStatus g_req = REQ_IDLE;
+static AnswerInfo   g_ans;
+static const uint8_t *g_wav = nullptr;
+static size_t        g_wav_len = 0;
+
 // Keep the UI (display + face animation) alive during blocking playback.
 static void pump_ui()
 {
@@ -38,35 +45,43 @@ static void go_idle()
   Face_SetState(WB_IDLE);
 }
 
-// Recording finished: send it to the server and play the answer.
+// Runs on core 0: does the (blocking) HTTPS request, then signals the result.
+static void ask_task(void *)
+{
+  AnswerInfo ans;
+  int code = WonderClient_Ask(g_wav, g_wav_len, ans);
+  g_ans = ans;
+  g_req = (code == 200) ? REQ_DONE : REQ_FAILED;
+  vTaskDelete(nullptr);
+}
+
+// Recording finished: fire off the request (non-blocking) and show THINKING.
 static void stop_and_send()
 {
   MicButton_SetActive(false);
   Mic_Stop();
-  Face_SetState(WB_THINKING);
-  pump_ui();  // paint the thinking face before the (brief) blocking request
 
-  const uint8_t *wav = nullptr;
-  size_t len = 0;
-  if (!Mic_GetWav(&wav, &len)) {
+  if (!Mic_GetWav(&g_wav, &g_wav_len)) {
     Serial.println("[app] nothing recorded");
     go_idle();
     return;
   }
 
-  AnswerInfo ans;
-  int code = WonderClient_Ask(wav, len, ans);
-  if (code == 200) {
-    if (ans.isSpelling && ans.spellWord.length() > 0) {
-      Face_ShowSpelling(ans.spellWord.c_str());
-    } else {
-      Face_SetState(WB_SPEAKING);
-    }
-    Stream *body = WonderClient_GetStream();
-    if (body) Speaker_PlayWavStream(*body, WonderClient_GetLength(), pump_ui);
+  Face_SetState(WB_THINKING);
+  g_req = REQ_RUNNING;
+  xTaskCreatePinnedToCore(ask_task, "ask", 16384, nullptr, 4, nullptr, 0);
+}
+
+// Called on the main loop once the background request finishes successfully.
+static void play_answer()
+{
+  if (g_ans.isSpelling && g_ans.spellWord.length() > 0) {
+    Face_ShowSpelling(g_ans.spellWord.c_str());
   } else {
-    Serial.printf("[app] request failed (%d)\n", code);
+    Face_SetState(WB_SPEAKING);
   }
+  Stream *body = WonderClient_GetStream();
+  if (body) Speaker_PlayWavStream(*body, WonderClient_GetLength(), pump_ui);
   WonderClient_End();
   go_idle();
 }
@@ -88,8 +103,7 @@ static void on_mic_tap()
       stop_and_send();
       break;
     default:
-      // Mid-answer tap: calmly return to the ready face.
-      go_idle();
+      // THINKING (request in flight) or during playback: ignore taps.
       break;
   }
 }
@@ -107,7 +121,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== WonderBox firmware (Stage 3: device<->server loop) ===");
+  Serial.println("\n=== WonderBox firmware (Stage 4: real pipeline) ===");
 
   Board_Init();
   Lvgl_Init();
@@ -132,6 +146,17 @@ void loop()
   // While listening, keep capturing and auto-stop on silence.
   if (Face_GetState() == WB_LISTENING) {
     if (!Mic_Poll()) stop_and_send();
+  }
+
+  // Handle the background request result (THINKING kept animating meanwhile).
+  if (g_req == REQ_DONE) {
+    g_req = REQ_IDLE;
+    play_answer();
+  } else if (g_req == REQ_FAILED) {
+    g_req = REQ_IDLE;
+    Serial.println("[app] request failed");
+    WonderClient_End();
+    go_idle();
   }
 
   delay(5);

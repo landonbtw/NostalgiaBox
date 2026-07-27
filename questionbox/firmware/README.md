@@ -24,6 +24,12 @@ SPEAKING / SPELLING), designed for the round screen. Push-to-talk only — the
 mic never listens on its own. **Audio is recorded, sent, and discarded — never
 stored** on the device.
 
+> **Stage 4 update:** the server now runs the real (multi-second) STT → safety →
+> LLM → TTS pipeline, so the device sends the request on a **background task**.
+> The **THINKING** dots keep bouncing during the wait, and the **SPEAKING**
+> mouth animates during playback. No device setup changes vs. Stage 3 — just set
+> `OPENAI_API_KEY` on the server.
+
 ### Before it can talk: set up `secrets.h`
 
 Copy `include/secrets.h.example` to `include/secrets.h` and fill in your

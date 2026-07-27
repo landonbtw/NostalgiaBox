@@ -5,19 +5,40 @@ device talks to over HTTPS. It receives recorded audio, and (from Stage 4)
 transcribes it, runs the **safety layer**, generates a short kid-safe answer,
 speaks it, logs the text to Supabase, and serves the parent dashboard.
 
-## What works in Stage 3
+## What works in Stage 4
 
-- `POST /api/ask` — the device endpoint.
-  - Requires `Authorization: Bearer <DEVICE_TOKEN>` (so only your box can call it).
-  - Reads the posted audio and **immediately discards it** — audio is never
-    stored anywhere. Only text is ever kept (logging arrives in Stage 5).
-  - Returns a **hardcoded friendly answer**: a short chime as the audio (to
-    prove the speaker path) plus answer text in response headers.
-- `GET /api/ask` — a health check you can open in a browser.
-- A tiny landing page at `/`.
+- `POST /api/ask` — the device endpoint, now running the **real pipeline**:
+  **speech-to-text → safety (2 gates) → answer LLM → text-to-speech**.
+  - Requires `Authorization: Bearer <DEVICE_TOKEN>`.
+  - Reads the posted audio, transcribes it, and **discards it** — audio (in and
+    out) is never stored. Only question/answer text is kept (logged to Supabase
+    in Stage 5).
+  - Returns spoken audio (OpenAI TTS, voice **nova**) + answer text in headers.
+  - If `OPENAI_API_KEY` is missing it returns a friendly "not set up yet"
+    message so the box still talks.
+- `GET /api/ask` — health check (`aiConfigured` tells you if the key is set).
 
-The real **speech-to-text → safety → LLM → text-to-speech** pipeline replaces
-the hardcoded answer in Stage 4.
+### The safety layer (the important part)
+
+Four layers; a bad answer must beat **all** of them, and we **default to defer**:
+
+1. **Gate 0 — deterministic rules** (`lib/safety/`): blocked/deferred topics are
+   caught here *before any LLM call*. This is what the test-suite pins down.
+2. **Gate 1 — LLM classifier**: anything but a clear "answer" ⇒ defer.
+3. **Gate 2 — answer LLM** under a strict kid-safe system prompt (1–3 short
+   sentences; emits `[DEFER]` for anything it shouldn't answer).
+4. **Post-check**: the generated answer is re-scanned against the deny rules and
+   clamped to ≤ 3 sentences.
+
+Spelling questions are handled deterministically and safely (the requested word
+is spelled out; blocked words are deferred).
+
+**The allow/deny rules live in `lib/safety/rules.ts`** (moving to Supabase in
+Stage 5 so you can edit them from the dashboard). ALLOW: how things work,
+animals, nature, space, science, simple math, shapes/colors, definitions,
+spelling, simple geography. DEFER: opinions, feelings, news, politics, religion,
+death, violence/weapons, scary, sex/where-babies-come-from, medical, specific
+real people, money — plus REFUSE for attempts to change the rules.
 
 ## The device↔server contract
 
@@ -64,16 +85,22 @@ npm test         # vitest — verifies /api/ask auth + contract
 npm run typecheck
 ```
 
-The **safety-layer test suite** (the definition of done for the safety work)
-lands in Stage 4.
+The **safety-layer test suite** is the definition of done: `safety-rules.test.ts`
+asserts every blocked/deferred category is never classified "answer", and
+`pipeline.test.ts` proves that even a fully permissive (mocked) LLM cannot get a
+substantive answer past the gates for a blocked question. These run with **no
+network and no API key**.
 
 ## Deploy to Vercel
 
 1. Push this repo to GitHub (done).
 2. In Vercel, **New Project → import the repo**, and set the **Root Directory**
    to `questionbox/server`.
-3. Add the environment variable **`DEVICE_TOKEN`** (same value as the firmware's
-   `secrets.h`). Generate one with `openssl rand -hex 32`.
+3. Add environment variables:
+   - **`DEVICE_TOKEN`** — same value as the firmware's `secrets.h`
+     (`openssl rand -hex 32`).
+   - **`OPENAI_API_KEY`** — from https://platform.openai.com/api-keys
+     (powers STT + safety LLM + TTS).
 4. Deploy. Your device's `SERVER_BASE_URL` is the resulting
    `https://<your-project>.vercel.app`.
 
