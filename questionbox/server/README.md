@@ -91,6 +91,25 @@ server with the Supabase service role *after* the session check, so the data is
 never exposed to the browser via the public key. (Can be upgraded to
 Supabase-Auth magic links locked to your email if you prefer.)
 
+## Daily digest (Stage 7)
+
+Once a day, a **Vercel Cron** job (`vercel.json` → `/api/cron/digest`, default
+13:00 UTC) summarizes the previous day's questions into a short, friendly note
+("On Sunday, the kids asked WonderBox about how far away the moon is…") and
+**emails it to you via Resend**. Text only — never audio.
+
+- The cron endpoint is protected by **`CRON_SECRET`** (Vercel sends it as a
+  Bearer token automatically; we fail closed if it's unset).
+- The send layer is **swappable**: `DIGEST_PROVIDER=sms` uses Twilio instead of
+  email — no change to the digest code.
+- Quiet days are skipped (no empty emails). You can also **"Email me today's
+  digest"** from the dashboard to test it immediately.
+
+**Setup:** add `CRON_SECRET` (`openssl rand -hex 32`), `RESEND_API_KEY` (from
+[resend.com](https://resend.com)), and `DIGEST_TO_EMAIL`. Optionally set
+`DIGEST_FROM_EMAIL` (defaults to Resend's shared sender until you verify a
+domain) and `DIGEST_CHILD_NAME` to personalize the note.
+
 ## Run it locally
 
 ```bash

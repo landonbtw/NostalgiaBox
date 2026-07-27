@@ -399,3 +399,17 @@ code {
   color: var(--accent);
   font-weight: 600;
 }
+.note-ok {
+  background: #e9f8ef;
+  border: 1px solid #b9e6cb;
+  color: #1f7a45;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}

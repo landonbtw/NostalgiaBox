@@ -1,17 +1,34 @@
 import Link from "next/link";
 import { getDailySummary, todayStr } from "@/lib/dashboard-data";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { isDigestConfigured } from "@/lib/email";
+import { sendDigestNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardHome() {
+const DIGEST_NOTE: Record<string, string> = {
+  sent: "Digest sent! Check your inbox.",
+  error: "Couldn't send the digest — check your email settings.",
+  unconfigured: "Set RESEND_API_KEY and DIGEST_TO_EMAIL to enable the digest.",
+};
+
+export default async function DashboardHome({
+  searchParams,
+}: {
+  searchParams: Promise<{ digest?: string }>;
+}) {
   const configured = isSupabaseConfigured();
   const today = todayStr();
   const summary = configured ? await getDailySummary(today) : null;
+  const { digest } = await searchParams;
 
   return (
     <section>
       <h1>Today</h1>
+
+      {digest && DIGEST_NOTE[digest] && (
+        <p className={digest === "sent" ? "note-ok" : "alert"}>{DIGEST_NOTE[digest]}</p>
+      )}
 
       {!configured && (
         <p className="alert">
@@ -52,10 +69,15 @@ export default async function DashboardHome() {
             </div>
           )}
 
-          <p>
+          <p className="row">
             <Link className="btn" href={`/dashboard/log?date=${today}`}>
               See today&apos;s questions
             </Link>
+            {isDigestConfigured() && (
+              <form action={sendDigestNowAction}>
+                <button className="btn-ghost" type="submit">Email me today&apos;s digest</button>
+              </form>
+            )}
           </p>
         </>
       )}
