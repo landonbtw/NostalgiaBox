@@ -1,0 +1,9 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+
+# Real device secrets - never commit
+include/secrets.h
+src/secrets.h
