@@ -14,6 +14,7 @@
 import { containsBlockedContent, detectSpelling, ruleCheck } from "./safety/classifier";
 import { deferMessage, refuseMessage } from "./safety/messages";
 import { DEFER_TOKEN } from "./safety/prompts";
+import { DEFAULT_RULES, type SafetyRules } from "./safety/rules";
 import type { AnswerMode } from "./answer";
 
 export interface PipelineResult {
@@ -53,22 +54,28 @@ function refuse(reason?: string, category?: string): PipelineResult {
   return { text: refuseMessage(), mode: "refused", isSpelling: false, category, reason };
 }
 
-export async function answerQuestion(question: string, deps: PipelineDeps): Promise<PipelineResult> {
+export async function answerQuestion(
+  question: string,
+  deps: PipelineDeps,
+  rules: SafetyRules = DEFAULT_RULES,
+): Promise<PipelineResult> {
   const q = (question ?? "").trim();
   if (!q) return defer("empty", "empty_question");
 
   // --- Gate 0: deterministic rules (hard block; never reaches an LLM) ---
-  const rule = ruleCheck(q);
+  const rule = ruleCheck(q, rules);
   if (rule.decision === "refuse") return refuse(rule.reason, rule.category);
   if (rule.decision === "defer") return defer(q, rule.reason, rule.category);
 
   // --- Spelling: deterministic and safe (only spells the requested word) ---
   const spellWord = detectSpelling(q);
   if (spellWord) {
-    if (containsBlockedContent(spellWord)) return defer(q, "blocked_spell_word");
-    const letters = spellWord.toUpperCase().split("").join(", ");
+    if (containsBlockedContent(spellWord, rules)) return defer(q, "blocked_spell_word");
+    // Periods between letters make the text-to-speech pause, so it's read
+    // slowly — roughly matching the letters appearing one at a time on screen.
+    const letters = spellWord.toUpperCase().split("").join(". ");
     return {
-      text: `"${cap(spellWord)}" is spelled ${letters}. ${cap(spellWord)}!`,
+      text: `Let's spell ${spellWord.toLowerCase()}. ${letters}. That spells ${spellWord.toLowerCase()}!`,
       mode: "answered",
       isSpelling: true,
       spellWord: spellWord.toUpperCase(),
@@ -97,7 +104,7 @@ export async function answerQuestion(question: string, deps: PipelineDeps): Prom
   if (!ans || ans.includes(DEFER_TOKEN)) return defer(q, "model_deferred", cls.category);
 
   // --- Post-check: the generated answer must itself be clean and short ---
-  if (containsBlockedContent(ans)) return defer(q, "answer_tripped_deny", cls.category);
+  if (containsBlockedContent(ans, rules)) return defer(q, "answer_tripped_deny", cls.category);
   const clean = clampSentences(ans);
   if (!clean) return defer(q, "empty_after_clamp", cls.category);
 

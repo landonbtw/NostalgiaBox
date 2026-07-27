@@ -1,5 +1,6 @@
 import { getOpenAI } from "./openai";
 import { buildAnswerSystemPrompt, buildClassifierPrompt } from "../safety/prompts";
+import { DEFAULT_RULES, type SafetyRules } from "../safety/rules";
 
 export interface LlmClassification {
   decision: "answer" | "defer" | "refuse";
@@ -8,7 +9,10 @@ export interface LlmClassification {
 }
 
 /** Gate 1: LLM classification. Defaults to "defer" on any parsing trouble. */
-export async function classifyQuestion(question: string): Promise<LlmClassification> {
+export async function classifyQuestion(
+  question: string,
+  rules: SafetyRules = DEFAULT_RULES,
+): Promise<LlmClassification> {
   const openai = getOpenAI();
   const model = process.env.LLM_MODEL || "gpt-4o-mini";
 
@@ -17,7 +21,7 @@ export async function classifyQuestion(question: string): Promise<LlmClassificat
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: buildClassifierPrompt() },
+      { role: "system", content: buildClassifierPrompt(rules) },
       { role: "user", content: question },
     ],
   });
@@ -35,7 +39,10 @@ export async function classifyQuestion(question: string): Promise<LlmClassificat
 }
 
 /** Gate 2: answer generation under the strict, kid-safe system prompt. */
-export async function generateAnswer(question: string): Promise<string> {
+export async function generateAnswer(
+  question: string,
+  rules: SafetyRules = DEFAULT_RULES,
+): Promise<string> {
   const openai = getOpenAI();
   const model = process.env.LLM_MODEL || "gpt-4o-mini";
 
@@ -44,7 +51,7 @@ export async function generateAnswer(question: string): Promise<string> {
     temperature: 0.4,
     max_tokens: 160,
     messages: [
-      { role: "system", content: buildAnswerSystemPrompt() },
+      { role: "system", content: buildAnswerSystemPrompt(rules) },
       { role: "user", content: question },
     ],
   });

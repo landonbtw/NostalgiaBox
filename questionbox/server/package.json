@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.110.9",
     "next": "16.2.12",
     "openai": "6.49.0",
     "react": "19.2.8",

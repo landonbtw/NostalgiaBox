@@ -111,7 +111,7 @@ describe("pipeline — spelling is handled safely and deterministically", () => 
     expect(res.mode).toBe("answered");
     expect(res.isSpelling).toBe(true);
     expect(res.spellWord).toBe("DOG");
-    expect(res.text).toContain("D, O, G");
+    expect(res.text).toContain("D. O. G");
     expect(deps.generate).not.toHaveBeenCalled();
   });
 });

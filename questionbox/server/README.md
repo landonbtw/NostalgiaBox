@@ -33,12 +33,29 @@ Four layers; a bad answer must beat **all** of them, and we **default to defer**
 Spelling questions are handled deterministically and safely (the requested word
 is spelled out; blocked words are deferred).
 
-**The allow/deny rules live in `lib/safety/rules.ts`** (moving to Supabase in
-Stage 5 so you can edit them from the dashboard). ALLOW: how things work,
-animals, nature, space, science, simple math, shapes/colors, definitions,
-spelling, simple geography. DEFER: opinions, feelings, news, politics, religion,
-death, violence/weapons, scary, sex/where-babies-come-from, medical, specific
-real people, money — plus REFUSE for attempts to change the rules.
+**The allow/deny rules are editable config.** They ship as defaults in
+`lib/safety/rules.ts` and, once Supabase is set up, are loaded from the
+`topic_rules` table (seeded automatically on first run) so you can edit them from
+the dashboard without a code change. ALLOW: how things work, animals, nature,
+space, science, simple math, shapes/colors, definitions, spelling, simple
+geography. DEFER: opinions, feelings, news, politics, religion, death,
+violence/weapons, scary, sex/where-babies-come-from, medical, specific real
+people, money — plus REFUSE for attempts to change the rules.
+
+### Logging (Stage 5)
+
+Every interaction is logged to Supabase — **text only**: timestamp, transcribed
+question, answer, whether it was `answered`/`deferred`/`refused` and why (plus
+`is_spelling`/`spell_word` and latency). **Audio is never logged or stored.**
+Logging is best-effort: a logging failure never breaks a child's answer, and if
+Supabase isn't configured, logging is simply skipped.
+
+**Setup:** create a project at [supabase.com](https://supabase.com), run
+[`supabase/schema.sql`](supabase/schema.sql) in the SQL editor, then add
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+`SUPABASE_SERVICE_ROLE_KEY` to your env (Vercel). RLS is on with no public
+policies — only the server's service role can read/write; the dashboard
+(Stage 6) reads via the server after authenticating you.
 
 ## The device↔server contract
 

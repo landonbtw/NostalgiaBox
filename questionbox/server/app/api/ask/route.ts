@@ -4,8 +4,11 @@ import { generateChimeWav } from "@/lib/wav";
 import { hasOpenAI } from "@/lib/ai/openai";
 import { transcribe } from "@/lib/ai/stt";
 import { synthesize } from "@/lib/ai/tts";
-import { realDeps } from "@/lib/ai/deps";
+import { makeRealDeps } from "@/lib/ai/deps";
 import { answerQuestion } from "@/lib/pipeline";
+import { getRules } from "@/lib/safety/rules-store";
+import { logInteraction } from "@/lib/log";
+import { isSupabaseConfigured } from "@/lib/supabase";
 import { setupMessage, troubleMessage } from "@/lib/safety/messages";
 
 export const runtime = "nodejs";
@@ -45,6 +48,8 @@ export async function POST(request: Request): Promise<Response> {
     return buildAnswerResponse({ text, mode: "deferred", isSpelling: false, wav: generateChimeWav() });
   }
 
+  const startedAt = Date.now();
+
   // 1) Speech-to-text (audio discarded right after).
   let question = "";
   try {
@@ -56,12 +61,23 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // 2) Safety pipeline (2 gates + deterministic checks) -> answer text.
-  const result = await answerQuestion(question, realDeps);
+  const rules = await getRules(); // editable rules from Supabase (or defaults)
+  const result = await answerQuestion(question, makeRealDeps(rules), rules);
 
-  // Text-only logging (audio is never logged). Stage 5 writes this to Supabase.
+  // 3) Text-only logging to Supabase (audio is NEVER logged). Best-effort.
+  await logInteraction({
+    question,
+    answer: result.text,
+    mode: result.mode,
+    category: result.category,
+    reason: result.reason,
+    isSpelling: result.isSpelling,
+    spellWord: result.spellWord,
+    latencyMs: Date.now() - startedAt,
+  });
   console.log(`[ask] q="${question}" -> mode=${result.mode} cat=${result.category ?? "-"}`);
 
-  // 3) Text-to-speech.
+  // 4) Text-to-speech.
   const wav = await ttsOrChime(result.text);
 
   const answer: WonderAnswer = {
@@ -75,5 +91,12 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export function GET(): Response {
-  return Response.json({ name: "WonderBox", endpoint: "/api/ask", stage: 4, ok: true, aiConfigured: hasOpenAI() });
+  return Response.json({
+    name: "WonderBox",
+    endpoint: "/api/ask",
+    stage: 5,
+    ok: true,
+    aiConfigured: hasOpenAI(),
+    loggingConfigured: isSupabaseConfigured(),
+  });
 }
