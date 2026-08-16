@@ -1,7 +1,7 @@
 import re
 
 from nostalgiabox.config import config_from_dict
-from nostalgiabox.overlay import OverlayManager
+from nostalgiabox.overlay import OverlayManager, _hex_to_ass
 from nostalgiabox.player import MockPlayer
 from tests.helpers import FakeClock, make_show
 
@@ -68,6 +68,24 @@ def test_muted_volume_overlay(tmp_path):
     om = OverlayManager(player, _config(tmp_path), clock=FakeClock())
     om.show_volume(45, muted=True)
     assert "Mute" in player.overlays[2]
+
+
+def test_unlit_volume_dots_use_dim_colour(tmp_path):
+    player = MockPlayer()
+    config = _config(tmp_path)
+    om = OverlayManager(player, config, clock=FakeClock())
+    # Derived from the config, not hardcoded, so this tracks the defaults.
+    lit = _hex_to_ass(config.ui.color)
+    dim = _hex_to_ass(config.ui.dim_color)
+    assert lit != dim, "dim_color must differ from color for this test to mean anything"
+
+    om.show_volume(50, muted=False)
+    ass = player.overlays[2]
+    bars = [ln for ln in ass.splitlines() if "m 0 0 l" in ln]
+    dots = [ln for ln in ass.splitlines() if "\\p1" in ln and "m 0 0 l" not in ln]
+    assert bars and dots  # counts are covered by test_volume_bars_scale_with_level
+    assert all(lit in ln for ln in bars)
+    assert all(dim in ln for ln in dots)
 
 
 def test_standby_overlay_does_not_expire(tmp_path):

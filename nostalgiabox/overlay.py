@@ -7,7 +7,8 @@ Two signature elements:
 * the **channel banner** ("CH 03" + the show name) that flashes top-right when
   you change channels, and
 * the **volume bar** - a row of solid green bars for the current level followed
-  by green dots for the rest, with a "Volume" label - matching a classic TV OSD.
+  by dim dots for the unlit remainder, with a "Volume" label - matching a
+  classic TV OSD.
 
 Everything is rendered as ASS overlays on a fixed 1280x720 virtual canvas (mpv
 scales it to the TV) and cleared automatically after a few seconds by
@@ -163,7 +164,7 @@ def _channel_bug_ass(number: int, name: str, ui: UiConfig) -> str:
 
 
 def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
-    """A 'Volume' label with solid green bars (level) then green dots (remainder)."""
+    """A 'Volume' label with solid green bars (level) then dim dots (remainder)."""
     level = max(0, min(100, int(level)))
     segments = 20
     filled = 0 if muted else round(level / 100 * segments)
@@ -176,6 +177,8 @@ def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
     row_top = _IY1 - bar_h                  # sit just above the bottom safe edge
     dot_r = 6
     green = _hex_to_ass(ui.color)
+    # dim_color, not color, so the remainder reads as an empty track.
+    dim = _hex_to_ass(ui.dim_color)
 
     label = "Mute" if muted else "Volume"
     parts = [
@@ -189,7 +192,7 @@ def _volume_ass(level: int, muted: bool, ui: UiConfig) -> str:
                 _filled_rect(x=x0 + i * pitch, y=row_top, w=bar_w, h=bar_h, fill=green)
             )
         else:
-            parts.append(_dot(cx=cx, cy=row_top + bar_h / 2, r=dot_r, fill=green))
+            parts.append(_dot(cx=cx, cy=row_top + bar_h / 2, r=dot_r, fill=dim))
     return "\n".join(parts)
 
 

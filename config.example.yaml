@@ -92,7 +92,7 @@ osd_duration: 2           # how long the volume bar / messages linger
 ui:
   font: "VT323"           # bundled retro terminal font (installed by install.sh)
   color: "#4DFF5A"        # phosphor green for CH banner, volume bar, messages
-  dim_color: "#123B18"    # (reserved) colour for unlit elements
+  dim_color: "#123B18"    # unlit elements — the volume bar's empty-track dots
   glow: true              # soft CRT-style glow around the text
 
 # --- CRT picture effect (for 4:3 shows on a flat TV) -------------------------
