@@ -15,18 +15,22 @@ Conflicts=getty@tty1.service
 [Service]
 Type=simple
 User=__USER__
-Group=__USER__
+Group=__GROUP__
 # Access to the framebuffer/GPU, input devices and audio.
 SupplementaryGroups=video render input audio tty
 WorkingDirectory=__REPO_DIR__
 Environment=HOME=__HOME__
 # Render straight to the console/HDMI via KMS-DRM.
 Environment=XDG_RUNTIME_DIR=/run/user/__UID__
+# Absolute path on purpose: the command is not looked up on PATH.
 ExecStart=__REPO_DIR__/.venv/bin/nostalgiabox --config __REPO_DIR__/config.yaml
 Restart=always
-RestartSec=3
-# Own the console so video can be shown on it.
+RestartSec=5
+# Own the console so video can be shown on it. Logs still go to the journal
+# (journalctl -u nostalgiabox -f).
 StandardInput=tty
+StandardOutput=journal
+StandardError=journal
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes

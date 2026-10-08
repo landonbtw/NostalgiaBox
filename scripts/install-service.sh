@@ -9,12 +9,14 @@ TEMPLATE="${REPO_DIR}/scripts/nostalgiabox.service"
 TARGET="/etc/systemd/system/nostalgiabox.service"
 
 RUN_USER="${SUDO_USER:-$USER}"
+RUN_GROUP="$(id -gn "${RUN_USER}")"
 RUN_UID="$(id -u "${RUN_USER}")"
 RUN_HOME="$(getent passwd "${RUN_USER}" | cut -d: -f6)"
 
 if [[ ! -x "${REPO_DIR}/.venv/bin/nostalgiabox" ]]; then
   echo "error: ${REPO_DIR}/.venv/bin/nostalgiabox not found." >&2
-  echo "Run ./scripts/install.sh first." >&2
+  echo "Install NostalgiaBox first. This command works from any folder:" >&2
+  echo "  bash ${REPO_DIR}/scripts/install.sh" >&2
   exit 1
 fi
 
@@ -22,6 +24,7 @@ echo "==> Rendering service unit for user '${RUN_USER}'"
 tmp="$(mktemp)"
 sed \
   -e "s|__USER__|${RUN_USER}|g" \
+  -e "s|__GROUP__|${RUN_GROUP}|g" \
   -e "s|__UID__|${RUN_UID}|g" \
   -e "s|__HOME__|${RUN_HOME}|g" \
   -e "s|__REPO_DIR__|${REPO_DIR}|g" \

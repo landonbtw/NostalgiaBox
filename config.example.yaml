@@ -1,56 +1,46 @@
 # =============================================================================
 # NostalgiaBox configuration
 # =============================================================================
-# Copy this file to `config.yaml` (or /etc/nostalgiabox/config.yaml) and edit it
-# to match the show folders on your SD card. Validate it any time with:
+# The installer copies this file to config.yaml the first time it runs.
+# Check it any time, from any folder, with:
 #
 #     nostalgiabox --check
 #
-# There are two ways to define channels. Pick ONE.
-
-# -----------------------------------------------------------------------------
-# OPTION A (easiest): auto-discover channels from a media folder.
-# -----------------------------------------------------------------------------
-# Point `media_root` at a folder; every sub-folder becomes a channel, named
-# after the folder and numbered sequentially. Just drop show folders in and go:
+# You do not need to edit this file for a normal setup. Every folder inside
+# the media folder becomes a channel. The folder name is the channel name:
 #
 #   /media/nostalgiabox/
-#     ├── Dragon Tales/          -> channel 2 "Dragon Tales"
-#     ├── Arthur/                -> channel 3 "Arthur"
-#     └── Winnie the Pooh/       -> channel 4 "Winnie The Pooh"
+#     ├── Arthur/                -> channel 2 "Arthur"
+#     ├── Dragon Tales/          -> channel 3 "Dragon Tales"
+#     └── Winnie the Pooh/       -> channel 4 "Winnie the Pooh"
 #
-# media_root: /media/nostalgiabox
-# first_channel_number: 2      # what the first discovered channel is numbered
+# Numbers follow alphabetical order, starting at first_channel_number.
+#
+# A USB drive is used instead when it is plugged in AND it contains show
+# folders with videos. The installer mounts that drive at the usb path below.
+
+media_root: /media/nostalgiabox
+usb_media_root: /media/nostalgiabox-usb
+prefer_usb: true
+first_channel_number: 2      # number of the first discovered channel
 
 # -----------------------------------------------------------------------------
-# OPTION B (explicit): list channels yourself for full control of numbers/names.
+# Optional: list channels yourself (numbers, names, skipping seasons).
 # -----------------------------------------------------------------------------
-channels:
-  - number: 2
-    name: "Dragon Tales"
-    path: /media/nostalgiabox/dragon-tales
-  - number: 3
-    name: "Arthur"
-    path: /media/nostalgiabox/arthur
-    # Leave out episodes you don't want on this channel:
-    exclude_seasons: ["6-25"]      # drop seasons 6 through 25 (detected from
-                                   #   names like S06E01, "Season 6", 6x01)
-    exclude: ["*special*"]         # drop any file/folder whose path matches
-  - number: 4
-    name: "The Magic School Bus"
-    path: /media/nostalgiabox/magic-school-bus
-  - number: 5
-    name: "Bear in the Big Blue House"
-    path: /media/nostalgiabox/bear-in-the-big-blue-house
-  - number: 6
-    name: "Winnie the Pooh"
-    path: /media/nostalgiabox/winnie-the-pooh
-  - number: 7
-    name: "The Berenstain Bears"
-    path: /media/nostalgiabox/berenstain-bears
-  - number: 8
-    name: "Mister Rogers' Neighborhood"
-    path: /media/nostalgiabox/mister-rogers
+# If you uncomment `channels:`, that list REPLACES folder discovery. Delete
+# the list to go back to "one folder = one channel". Paths must be the real
+# folder names, spaces included. There is no automatic renaming.
+#
+# channels:
+#   - number: 2
+#     name: "Dragon Tales"
+#     path: "/media/nostalgiabox/Dragon Tales"
+#   - number: 3
+#     name: "Arthur"
+#     path: /media/nostalgiabox/Arthur
+#     # Leave out episodes you don't want on this channel:
+#     exclude_seasons: ["6-25"]    # drop seasons 6 through 25 (S06E01, "Season 6")
+#     exclude: ["*special*"]       # drop any file whose path matches
 
 # -----------------------------------------------------------------------------
 # How a channel behaves when you tune into it.
