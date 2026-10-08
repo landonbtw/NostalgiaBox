@@ -1,0 +1,6 @@
+# Installed to /etc/udev/rules.d/ by scripts/install.sh.
+# Hot-plug: mount a USB partition for show folders, and drop the mount when
+# that drive disappears.
+
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", ENV{DEVTYPE}=="partition", TAG+="systemd", ENV{SYSTEMD_WANTS}+="nostalgiabox-usb.service"
+ACTION=="remove", SUBSYSTEM=="block", ENV{ID_BUS}=="usb", RUN+="/usr/bin/systemd-run --no-block --collect __MOUNT_SCRIPT__ --unmount-if-gone"

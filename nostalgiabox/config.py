@@ -19,6 +19,24 @@ DEFAULT_VIDEO_EXTENSIONS: tuple[str, ...] = (
     ".mp4", ".mkv", ".avi", ".m4v", ".mov", ".webm", ".mpg", ".mpeg", ".ts",
 )
 
+# The installer creates these. The SD card library is the default; a USB drive
+# mounted at the second path is used automatically when it actually contains
+# show folders with videos (see ``config_from_dict``).
+DEFAULT_MEDIA_ROOT = Path("/media/nostalgiabox")
+DEFAULT_USB_MEDIA_ROOT = Path("/media/nostalgiabox-usb")
+
+# Folders Windows, macOS, and Linux drop on a removable drive. They are not shows.
+SKIP_LIBRARY_DIRS = frozenset({
+    "system volume information",
+    "$recycle.bin",
+    "lost.dir",
+    ".trash-1000",
+    ".trashes",
+    ".spotlight-v100",
+    ".fseventsd",
+    "found.000",
+})
+
 
 class ConfigError(Exception):
     """Raised when the configuration file is missing or invalid."""
@@ -132,6 +150,17 @@ class Config:
     # Options for the input backends (see input/manager.create_backends).
     input_options: Mapping[str, Any] = field(default_factory=dict)
 
+    # Where shows were loaded from. ``media_source`` is one of:
+    #   channels - the config listed channels explicitly (overrides discovery)
+    #   usb      - a USB library with videos was preferred
+    #   sd       - subfolders of media_root
+    media_root: Optional[Path] = None
+    usb_media_root: Optional[Path] = None
+    active_media_root: Optional[Path] = None
+    media_source: str = "channels"
+    # Set when the chosen library folder is missing or unreadable.
+    media_error: Optional[str] = None
+
     def channel_numbers(self) -> List[int]:
         return [c.number for c in self.channels]
 
@@ -146,6 +175,78 @@ def _as_path(value: Any, base: Optional[Path]) -> Path:
     return p
 
 
+def _optional_path(data: Mapping[str, Any], key: str, base: Optional[Path]) -> Optional[Path]:
+    """Resolve a path setting. Missing, empty, or false means "not set"."""
+    if key not in data:
+        return None
+    value = data[key]
+    if value in (None, False, ""):
+        return None
+    return _as_path(value, base)
+
+
+def library_show_folders(root: Path) -> List[Path]:
+    """Immediate subfolders of a media library that should become channels.
+
+    Hidden folders and operating-system junk (``.Trashes``,
+    ``System Volume Information``, and so on) are skipped. The caller decides
+    what to do when ``root`` itself is missing.
+    """
+    if not root.is_dir():
+        return []
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return []
+    folders = [
+        p
+        for p in children
+        if p.is_dir()
+        and not p.name.startswith(".")
+        and p.name.lower() not in SKIP_LIBRARY_DIRS
+    ]
+    folders.sort(key=lambda p: p.name.lower())
+    return folders
+
+
+def library_problem(root: Path) -> Optional[str]:
+    """Plain-English reason ``root`` cannot be scanned, or None if it can."""
+    if not root.exists():
+        return f"{root} does not exist"
+    if not root.is_dir():
+        return f"{root} is not a folder"
+    try:
+        list(root.iterdir())
+    except PermissionError:
+        return f"permission denied reading {root}"
+    except OSError as exc:
+        return f"cannot read {root} ({exc})"
+    return None
+
+
+def _folder_has_video(folder: Path, extensions: tuple[str, ...]) -> bool:
+    """True when ``folder`` contains at least one episode file."""
+    exts = {e.lower() for e in extensions}
+    try:
+        for dirpath, dirnames, filenames in os.walk(folder):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for name in filenames:
+                if name.startswith("."):
+                    continue
+                if Path(name).suffix.lower() in exts:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def library_has_videos(root: Path, extensions: tuple[str, ...]) -> bool:
+    """True when some show folder under ``root`` contains a video file."""
+    if library_problem(root):
+        return False
+    return any(_folder_has_video(folder, extensions) for folder in library_show_folders(root))
+
+
 def _discover_channels(
     media_root: Path,
     *,
@@ -154,20 +255,14 @@ def _discover_channels(
 ) -> List[ChannelConfig]:
     """Turn every immediate sub-folder of ``media_root`` into a channel.
 
-    This is the "just drop show folders on the SD card" workflow: a folder
+    This is the "just drop show folders in the media folder" workflow: a folder
     called ``Dragon Tales`` becomes a channel named "Dragon Tales". Channels
     are numbered sequentially starting at ``start_number`` in alphabetical
-    order of the folder name.
+    order of the folder name. An empty or missing folder yields no channels
+    (the caller explains that) rather than an error.
     """
-    if not media_root.is_dir():
-        raise ConfigError(f"media_root does not exist or is not a directory: {media_root}")
-
-    subdirs = sorted(
-        (p for p in media_root.iterdir() if p.is_dir() and not p.name.startswith(".")),
-        key=lambda p: p.name.lower(),
-    )
     channels: List[ChannelConfig] = []
-    for offset, folder in enumerate(subdirs):
+    for offset, folder in enumerate(library_show_folders(media_root)):
         channels.append(
             ChannelConfig(
                 number=start_number + offset,
@@ -263,24 +358,64 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
             raise ConfigError("'video_extensions' must be a non-empty list")
         extensions = tuple(e if e.startswith(".") else f".{e}" for e in (s.lower() for s in exts))
 
-    media_root_raw = data.get("media_root")
-    media_root = _as_path(media_root_raw, base_dir) if media_root_raw else None
+    media_root = _optional_path(data, "media_root", base_dir)
+    usb_root = _optional_path(data, "usb_media_root", base_dir)
+    prefer_usb = bool(data.get("prefer_usb", True))
 
-    if "channels" in data:
-        channels = _parse_channels(data["channels"], media_root or base_dir, default_shuffle)
-    elif media_root is not None:
-        channels = _discover_channels(
-            media_root,
-            start_number=int(data.get("first_channel_number", 2)),
-            default_shuffle=default_shuffle,
+    # An explicit, non-empty channel list wins over folder discovery so a
+    # hand-written config.yaml keeps working. An absent or empty list means
+    # "discover show folders for me".
+    explicit = data.get("channels")
+    has_explicit = bool(explicit)
+    if "channels" in data and explicit is not None and not isinstance(explicit, list):
+        raise ConfigError("'channels' must be a list")
+
+    active: Optional[Path] = None
+    source = "channels"
+    media_error: Optional[str] = None
+
+    if has_explicit:
+        channels = _parse_channels(explicit, media_root or base_dir, default_shuffle)
+        source = "channels"
+    elif media_root is not None or usb_root is not None:
+        try:
+            start_number = int(data.get("first_channel_number", 2))
+        except (TypeError, ValueError) as exc:
+            raise ConfigError("'first_channel_number' must be an integer") from exc
+        use_usb = (
+            prefer_usb
+            and usb_root is not None
+            and library_has_videos(usb_root, extensions)
         )
+        if use_usb:
+            active = usb_root
+            source = "usb"
+        elif media_root is not None:
+            active = media_root
+            source = "sd"
+        else:
+            active = usb_root
+            source = "usb"
+        assert active is not None
+        media_error = library_problem(active)
+        if media_error:
+            channels = []
+        else:
+            channels = _discover_channels(
+                active,
+                start_number=start_number,
+                default_shuffle=default_shuffle,
+            )
     else:
+        if "channels" in data:
+            raise ConfigError(
+                "the channels list is empty and media_root is not set. "
+                "Add a media_root line, for example: media_root: /media/nostalgiabox"
+            )
         raise ConfigError("configuration must define either 'channels' or 'media_root'")
 
-    if not channels:
-        raise ConfigError("no channels found - check 'channels' or the folders under 'media_root'")
-
-    _ensure_unique_numbers(channels)
+    if channels:
+        _ensure_unique_numbers(channels)
 
     tune_in = str(data.get("tune_in", "random")).lower()
     if tune_in not in TUNE_IN_MODES:
@@ -329,6 +464,11 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         shuffle_seed=(int(data["shuffle_seed"]) if data.get("shuffle_seed") is not None else None),
         assets_dir=assets_dir,
         input_options=dict(data.get("input") or {}),
+        media_root=media_root,
+        usb_media_root=usb_root,
+        active_media_root=active,
+        media_source=source,
+        media_error=media_error,
     )
 
 
@@ -454,6 +594,12 @@ __all__ = [
     "load_config",
     "config_from_dict",
     "DEFAULT_VIDEO_EXTENSIONS",
+    "DEFAULT_MEDIA_ROOT",
+    "DEFAULT_USB_MEDIA_ROOT",
+    "SKIP_LIBRARY_DIRS",
+    "library_show_folders",
+    "library_has_videos",
+    "library_problem",
     "TUNE_IN_MODES",
     "TRANSITION_EFFECTS",
 ]

@@ -120,9 +120,8 @@ class MpvPlayer(Player):
             import mpv  # type: ignore
         except ImportError as exc:  # pragma: no cover - only on machines w/o libmpv
             raise RuntimeError(
-                "python-mpv/libmpv is not installed. On the Raspberry Pi run "
-                "`scripts/install.sh` or `pip install .[pi]` and ensure libmpv "
-                "is present (`sudo apt install libmpv2 mpv`)."
+                "python-mpv/libmpv is not installed. On the Raspberry Pi, from "
+                "any folder, run: bash ~/NostalgiaBox/scripts/install.sh"
             ) from exc
 
         # Make our bundled retro font discoverable by libass (used for the OSD

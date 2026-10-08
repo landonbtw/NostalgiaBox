@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from nostalgiabox.config import (
@@ -200,3 +202,135 @@ def test_relative_paths_resolved_against_config_dir(tmp_path):
     cfg_file.write_text("channels:\n  - path: arthur\n    name: Arthur\n")
     cfg = load_config(cfg_file)
     assert cfg.channels[0].path == tmp_path / "arthur"
+
+
+def test_empty_media_root_is_a_valid_config(tmp_path):
+    root = tmp_path / "media"
+    root.mkdir()
+    cfg = config_from_dict({"media_root": str(root)})
+    assert cfg.channels == []
+    assert cfg.media_source == "sd"
+    assert cfg.active_media_root == root
+    assert cfg.media_error is None
+
+
+def test_missing_media_root_is_reported_not_raised(tmp_path):
+    missing = tmp_path / "missing"
+    cfg = config_from_dict({"media_root": str(missing)})
+    assert cfg.channels == []
+    assert cfg.media_error is not None
+    assert "does not exist" in cfg.media_error
+
+
+def test_empty_channel_list_falls_back_to_discovery(tmp_path):
+    make_show(tmp_path, "Arthur", 1)
+    cfg = config_from_dict({"channels": [], "media_root": str(tmp_path)})
+    assert cfg.media_source == "sd"
+    assert [c.name for c in cfg.channels] == ["Arthur"]
+
+
+def test_folder_names_with_spaces_stay_readable(tmp_path):
+    make_show(tmp_path, "Dragon Tales", 2)
+    make_show(tmp_path, "dragon-tales-alt", 1)
+    cfg = config_from_dict({"media_root": str(tmp_path)})
+    names = [c.name for c in cfg.channels]
+    assert "Dragon Tales" in names
+    assert "Dragon Tales Alt" in names
+
+
+def test_usb_library_with_videos_is_preferred(tmp_path):
+    sd = tmp_path / "sd"
+    usb = tmp_path / "usb"
+    make_show(sd, "Arthur", 1)
+    make_show(usb, "Dragon Tales", 3)
+    cfg = config_from_dict({"media_root": str(sd), "usb_media_root": str(usb)})
+    assert cfg.media_source == "usb"
+    assert cfg.active_media_root == usb
+    assert [(c.name, c.path) for c in cfg.channels] == [
+        ("Dragon Tales", usb / "Dragon Tales"),
+    ]
+
+
+def test_usb_without_videos_falls_back_to_sd_card(tmp_path):
+    sd = tmp_path / "sd"
+    usb = tmp_path / "usb"
+    make_show(sd, "Arthur", 2)
+    junk = usb / "System Volume Information"
+    junk.mkdir(parents=True)
+    (junk / "IndexerVolumeGuid").write_text("x")
+    (usb / "LOST.DIR").mkdir()
+    cfg = config_from_dict({
+        "media_root": str(sd),
+        "usb_media_root": str(usb),
+        "prefer_usb": True,
+    })
+    assert cfg.media_source == "sd"
+    assert cfg.channels[0].name == "Arthur"
+    assert "System Volume Information" not in [c.name for c in cfg.channels]
+
+
+def test_prefer_usb_false_keeps_the_sd_card(tmp_path):
+    sd = tmp_path / "sd"
+    usb = tmp_path / "usb"
+    make_show(sd, "Arthur", 1)
+    make_show(usb, "Dragon Tales", 1)
+    cfg = config_from_dict({
+        "media_root": str(sd),
+        "usb_media_root": str(usb),
+        "prefer_usb": False,
+    })
+    assert cfg.media_source == "sd"
+    assert cfg.channels[0].name == "Arthur"
+
+
+def test_explicit_channels_override_discovery(tmp_path):
+    sd = tmp_path / "sd"
+    usb = tmp_path / "usb"
+    make_show(sd, "Arthur", 1)
+    make_show(usb, "Dragon Tales", 4)
+    cfg = config_from_dict({
+        "media_root": str(sd),
+        "usb_media_root": str(usb),
+        "channels": [
+            {"number": 9, "name": "Custom", "path": str(sd / "Arthur")},
+        ],
+    })
+    assert cfg.media_source == "channels"
+    assert cfg.channel_numbers() == [9]
+    assert cfg.channels[0].path == sd / "Arthur"
+
+
+def test_os_junk_folders_are_not_channels(tmp_path):
+    make_show(tmp_path, "Arthur", 1)
+    (tmp_path / ".Trashes").mkdir()
+    (tmp_path / "$RECYCLE.BIN").mkdir()
+    (tmp_path / "System Volume Information").mkdir()
+    cfg = config_from_dict({"media_root": str(tmp_path)})
+    assert [c.name for c in cfg.channels] == ["Arthur"]
+
+
+def test_example_config_discovers_show_folders(tmp_path):
+    import yaml
+
+    example = Path(__file__).resolve().parents[1] / "config.example.yaml"
+    data = yaml.safe_load(example.read_text(encoding="utf-8"))
+    assert data["media_root"] == "/media/nostalgiabox"
+    assert data["usb_media_root"] == "/media/nostalgiabox-usb"
+    assert not data.get("channels")
+
+    sd = tmp_path / "sd"
+    make_show(sd, "Dragon Tales", 1)
+    data["media_root"] = str(sd)
+    data["usb_media_root"] = str(tmp_path / "usb-absent")
+    cfg = config_from_dict(data)
+    assert cfg.media_source == "sd"
+    assert cfg.channels[0].name == "Dragon Tales"
+    assert cfg.tune_in == "random"
+
+
+def test_bad_first_channel_number(tmp_path):
+    with pytest.raises(ConfigError, match="first_channel_number"):
+        config_from_dict({
+            "media_root": str(tmp_path),
+            "first_channel_number": "two",
+        })

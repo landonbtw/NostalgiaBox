@@ -4,61 +4,87 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional
 
 from . import __version__
-from .channel import build_lineup
-from .config import Config, ConfigError, load_config
+from .config import ConfigError, load_config
+from .doctor import no_shows_advice, report_config_error, run_check, wait_for_shows
 
 log = logging.getLogger("nostalgiabox")
 
-# Places we look for a config file when one isn't given explicitly.
-_DEFAULT_CONFIG_LOCATIONS = (
-    Path("config.yaml"),
-    Path.home() / ".config" / "nostalgiabox" / "config.yaml",
-    Path("/etc/nostalgiabox/config.yaml"),
-)
+_INSTALL_HINT = "bash ~/NostalgiaBox/scripts/install.sh"
 
 
-def _find_config(explicit: Optional[str]) -> Path:
+def installed_repo_dir() -> Optional[Path]:
+    """Directory of an editable install (the git checkout), if we can see it.
+
+    ``pip install -e`` keeps this file inside the checkout, so the config next
+    to ``pyproject.toml`` is the one the installer created. A copy installed
+    into site-packages will not have that layout; ``/etc/nostalgiabox`` is the
+    fallback the installer also links.
+    """
+    root = Path(__file__).resolve().parent.parent
+    if (root / "pyproject.toml").is_file() and (root / "scripts" / "install.sh").is_file():
+        return root
+    return None
+
+
+def config_candidates(
+    cwd: Path,
+    home: Path,
+    repo_dir: Optional[Path],
+) -> List[Path]:
+    """Config files to try, first hit wins.
+
+    A ``config.yaml`` in the current directory wins so a local file is used on
+    purpose. After that we look next to the installed checkout, then in the
+    usual per-user and system locations. That is what makes ``nostalgiabox
+    --check`` work no matter which folder the shell is in.
+    """
+    paths = [cwd / "config.yaml"]
+    if repo_dir is not None:
+        paths.append(repo_dir / "config.yaml")
+    paths.append(home / ".config" / "nostalgiabox" / "config.yaml")
+    paths.append(Path("/etc/nostalgiabox/config.yaml"))
+    unique: List[Path] = []
+    seen = set()
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _find_config(
+    explicit: Optional[str],
+    *,
+    cwd: Optional[Path] = None,
+    home: Optional[Path] = None,
+    repo_dir: Optional[Path] = None,
+) -> Path:
     if explicit:
         return Path(explicit).expanduser()
-    for candidate in _DEFAULT_CONFIG_LOCATIONS:
+    cwd = Path.cwd() if cwd is None else cwd
+    home = Path.home() if home is None else home
+    if repo_dir is None:
+        repo_dir = installed_repo_dir()
+    candidates = config_candidates(cwd, home, repo_dir)
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
+    looked = "\n".join(f"  - {path}" for path in candidates)
     raise ConfigError(
-        "no config file found. Pass --config PATH or create config.yaml "
-        "(see config.example.yaml)."
+        "No config file found. Looked for config.yaml in:\n"
+        f"{looked}\n"
+        "The installer creates ~/NostalgiaBox/config.yaml. From any folder, run:\n"
+        f"  {_INSTALL_HINT}"
     )
-
-
-def _cmd_check(config: Config) -> int:
-    """Validate the config and print the resulting channel lineup."""
-    # Surface bad key_overrides here so typos are caught before running.
-    from .input.keymap import parse_key_overrides
-
-    try:
-        overrides = parse_key_overrides(config.input_options.get("key_overrides"))
-    except ValueError as exc:
-        print(f"configuration error: {exc}")
-        return 2
-
-    lineup = build_lineup(config)
-    print(f"NostalgiaBox v{__version__} - configuration OK")
-    print(f"tune-in mode: {config.tune_in}")
-    if overrides:
-        print(f"key overrides: {len(overrides)} configured")
-    print(f"channels ({len(lineup)}):")
-    total = 0
-    for channel in lineup:
-        count = len(channel.episodes)
-        total += count
-        flag = "" if count else "   <-- NO EPISODES FOUND"
-        print(f"  CH {channel.number:>3}  {channel.name:<28} {count:>4} episodes{flag}")
-    print(f"total episodes: {total}")
-    return 0 if total > 0 else 1
 
 
 def _list_audio_devices() -> int:
@@ -120,8 +146,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args(argv)
 
+    # The check report is the whole output. An INFO line about loading the
+    # config would sit on top of it and look like a second error.
+    log_level = args.log_level
+    if args.check and log_level == "INFO":
+        log_level = "ERROR"
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -139,11 +170,30 @@ def main(argv: Optional[List[str]] = None) -> int:
         log.info("loading config: %s", config_path)
         config = load_config(config_path)
     except ConfigError as exc:
+        if args.check:
+            return report_config_error(exc)
         log.error("%s", exc)
         return 2
 
     if args.check:
-        return _cmd_check(config)
+        return _cmd_check(config, config_path)
+
+    if not config.channels:
+        if args.dry_run:
+            print(no_shows_advice(config))
+            return 1
+        print("NostalgiaBox is on, and it is waiting for shows.")
+        try:
+            signal.signal(signal.SIGTERM, _stop_waiting)
+            config = wait_for_shows(
+                lambda: load_config(config_path),
+                time.sleep,
+                _announce_waiting,
+            )
+        except (KeyboardInterrupt, SystemExit):
+            print("Stopped.")
+            return 0
+        print(f"Found {len(config.channels)} channel(s). Starting the TV.")
 
     from .app import run_from_config
 
@@ -153,6 +203,35 @@ def main(argv: Optional[List[str]] = None) -> int:
         log.error("%s", exc)
         return 1
     return 0
+
+
+def _cmd_check(config, config_path: Path) -> int:
+    """Validate key overrides, then print the full setup report."""
+    from .input.keymap import parse_key_overrides
+
+    try:
+        parse_key_overrides(config.input_options.get("key_overrides"))
+    except ValueError as exc:
+        print("NostalgiaBox check")
+        print("==================")
+        print()
+        print("Remote keys")
+        print(f"  FIX  {exc}")
+        print()
+        print("Open config.yaml and fix key_overrides, then run: nostalgiabox --check")
+        return 2
+    return run_check(config, config_path)
+
+
+def _announce_waiting(config) -> None:
+    print(no_shows_advice(config))
+    print("Waiting for shows. This starts on its own once a show folder appears.")
+    print("From another SSH window, run: nostalgiabox --check")
+    print()
+
+
+def _stop_waiting(signum, _frame) -> None:
+    raise SystemExit(0)
 
 
 if __name__ == "__main__":

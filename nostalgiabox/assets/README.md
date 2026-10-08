@@ -13,6 +13,6 @@ nostalgiabox --generate-assets
 python -m nostalgiabox.static_gen
 ```
 
-`scripts/install.sh` runs this for you during setup. If the files are missing at
+`bash ~/NostalgiaBox/scripts/install.sh` runs this for you during setup. If the files are missing at
 runtime the box still works — channel changes just skip the static burst and
 empty channels fall back to a plain "STANDBY" screen.

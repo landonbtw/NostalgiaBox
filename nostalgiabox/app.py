@@ -449,6 +449,12 @@ class TVApp:
 
 def run_from_config(config: Config, *, dry_run: bool = False) -> None:
     """Convenience entry point used by the CLI."""
+    if not config.channels:
+        root = config.media_root or "/media/nostalgiabox"
+        raise RuntimeError(
+            "No show folders found. Put one folder per show in "
+            f"{root} (the folder name is the channel name), then start again."
+        )
     app = TVApp.from_config(config, dry_run=dry_run)
     app.run()
 

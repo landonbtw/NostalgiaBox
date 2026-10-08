@@ -1,0 +1,17 @@
+# systemd unit template. scripts/install.sh fills in the path and installs
+# this to /etc/systemd/system/nostalgiabox-usb.service.
+#
+# Oneshot on purpose: it runs at boot, and udev starts it again whenever a
+# USB partition appears. The mount script exits successfully when no drive is
+# plugged in, so boot does not fail.
+
+[Unit]
+Description=Mount a USB drive for NostalgiaBox shows
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=__REPO_DIR__/scripts/mount-usb.sh --wait 20
+
+[Install]
+WantedBy=multi-user.target
