@@ -93,6 +93,16 @@ def test_volume_and_durations_clamped(tmp_path):
     assert cfg.transition_duration == 0.0
 
 
+def test_volume_control_must_be_known(tmp_path):
+    make_show(tmp_path, "a", 1)
+    data = {
+        "volume_control": "alsa",
+        "channels": [{"path": str(tmp_path / "a")}],
+    }
+    with pytest.raises(ConfigError, match="volume_control"):
+        config_from_dict(data)
+
+
 def test_video_extensions_normalised(tmp_path):
     make_show(tmp_path, "a", 1)
     data = {
@@ -106,6 +116,8 @@ def test_video_extensions_normalised(tmp_path):
 def test_ui_and_crt_defaults(tmp_path):
     make_show(tmp_path, "a", 1)
     cfg = config_from_dict({"channels": [{"path": str(tmp_path / "a")}]})
+    assert cfg.initial_volume == 100
+    assert cfg.volume_control == "auto"
     assert cfg.ui.font == "VT323"
     assert cfg.ui.color == "#4DFF5A"
     assert cfg.crt.enabled is True

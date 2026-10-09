@@ -351,10 +351,13 @@ its buttons into keys NostalgiaBox already understands.
 
 5. Unplug the Flirc from your computer and plug it back into the Pi.
 
-**What you should see:** channel and volume buttons change the TV. No config
-edit is required for this layout. To use different keys later, see
-`key_overrides` in [`config.example.yaml`](config.example.yaml). Find a
-button's Linux name with `sudo evtest` on the Pi.
+**What you should see:** channel buttons change the channel. Volume buttons
+change the television's own volume when HDMI-CEC works, and the Pi's volume
+otherwise. See [Volume](#volume). No config edit is required for this layout.
+Flirc has no separate CEC mode — this Full Keyboard layout is the whole remote
+setup. To use different keys later, see `key_overrides` in
+[`config.example.yaml`](config.example.yaml). Find a button's Linux name with
+`sudo evtest` on the Pi.
 
 ---
 
@@ -399,10 +402,16 @@ sudo systemctl restart nostalgiabox
 
 Kids will pull the plug. Two habits keep the SD card from getting corrupted.
 
-**Remote shutdown.** Turn the volume all the way down to 0, then press
-volume-down **once more**. The screen says `GOODBYE`, the Pi shuts down, and
-it is safe to unplug once the green light stops blinking. Turn it back on by
-plugging the power in. It boots to a channel by itself.
+**Remote shutdown, when the Pi is doing volume** (`volume_control: pi`, which
+is what you get if the TV has no HDMI-CEC). Turn the volume all the way down
+to 0, then press volume-down **once more**. The screen says `GOODBYE`, the Pi
+shuts down, and it is safe to unplug once the green light stops blinking.
+Turn it back on by plugging the power in. It boots to a channel by itself.
+
+**When the remote's volume keys control the TV** (the usual case; see
+[Volume](#volume)), those keys cannot shut the Pi down, because they never
+move the Pi's volume. The power button blanks the screen (standby). To shut
+all the way down so it is safe to unplug, SSH in and run `sudo poweroff`.
 
 **Read-only SD card (optional, stronger).** On the Pi:
 
@@ -424,10 +433,10 @@ it again.
 | Do this | On the remote |
 |---------|---------------|
 | Change channels | Channel up / down |
-| Adjust volume | Volume up / down |
+| Adjust volume | Volume up / down (the TV, when HDMI-CEC works) |
 | Mute | Mute |
 | Standby (blank screen) | Power |
-| **Turn off** (safe to unplug) | Volume-down again when already at 0 |
+| **Turn off** (safe to unplug) | Volume-down again at 0, **only** when the Pi is doing volume. Otherwise `sudo poweroff` over SSH |
 
 New episodes: add files to that show's folder (on the USB drive, or under
 `/media/nostalgiabox/NAME OF SHOW/`). The TV picks them up the next time that
@@ -436,6 +445,48 @@ channel starts an episode. If a brand-new show folder does not appear, run:
 ```bash
 sudo systemctl restart nostalgiabox
 ```
+
+---
+
+## Volume
+
+The remote does not have two volume knobs. One press moves one thing, once,
+and letting go stops it.
+
+**Television volume (the default when CEC works).** The installer puts
+`cec-utils` on the Pi. If `cec-client` is there, volume up, volume down, and
+mute on the Flirc remote are sent to the TV over HDMI-CEC. The Pi stays at
+full output (`initial_volume: 100`), so a TV set to 40 is just 40 — the Pi is
+not also sitting at 70 and making that quieter. Program the Flirc exactly as
+in step 8 (Full Keyboard: Right = volume up, Left = volume down, **m** = mute).
+On the TV, turn on HDMI-CEC. Makers call it Anynet+ (Samsung), SimpLink (LG),
+BRAVIA Sync (Sony), or HDMI control. The on-screen note says `TV VOL +`,
+`TV VOL -`, or `TV MUTE`. It is not a bar, because the Pi is not the knob and
+does not know the TV's number.
+
+**Pi volume.** Set this in `~/NostalgiaBox/config.yaml` when the TV ignores
+CEC, or when you want the green bar:
+
+```yaml
+volume_control: pi
+initial_volume: 100
+```
+
+Then `sudo systemctl restart nostalgiabox`. Each press adds or subtracts
+`volume_step` (5 unless you change it). The level is one number for every
+episode and every channel. It does not climb on its own after the bar
+disappears, and a new show does not pick a new gain. `volume_control: auto`
+(the default when the line is missing) uses the TV if CEC is available and the
+Pi otherwise. `volume_control: tv` asks for the TV and falls back to the Pi
+when CEC is missing.
+
+Shows are not loudness-normalized. A quiet rip and a loud rip can still sound
+different from each other. That is the file. Nothing in NostalgiaBox turns on
+replaygain or a loudness filter.
+
+If this Pi was set up before this change, `config.yaml` may still say
+`initial_volume: 70`. The installer does not overwrite that file. Set it to
+`100`, or delete the line, then restart the service.
 
 ---
 
@@ -581,6 +632,26 @@ with `journalctl -u nostalgiabox -f` while you watch the TV.
 Repeat step 9. If you used `vc4hdmi0`, try `vc4hdmi1` (or the other way
 around), then `sudo systemctl restart nostalgiabox`.
 
+### Volume keeps climbing, or jumps between shows
+
+One press should move the level once, and it should stop when you let go.
+Older builds treated Flirc's held-key repeat as more presses, and mpv could
+keep changing its own gain after the on-screen bar had gone (the console
+keyboard was still connected, and mpv will boost past 100 unless it is capped).
+A new episode could also come back at a different level. Update with the
+commands under [Updating](#updating), then set `initial_volume: 100` in
+`~/NostalgiaBox/config.yaml` if that line is still `70`, and restart:
+
+```bash
+sudo systemctl restart nostalgiabox
+```
+
+With the Pi at 100, the TV is the volume control. See [Volume](#volume). If
+the remote still will not change the TV, the set's HDMI-CEC is off or the TV
+does not support it. Set `volume_control: pi` for the on-screen bar instead.
+Flirc stays on the step 8 layout either way. There is no per-show loudness
+normalizer to turn off; it is not used.
+
 ### The remote does nothing
 
 The Flirc has to be programmed (step 8) and plugged into the Pi. Unplug it,
@@ -612,7 +683,8 @@ tune_in: random              # random | resume | broadcast
 start_channel: 2
 start_offset: [6, 10]        # start each episode 6–10 seconds in
 transition: none             # none | glitch | static
-initial_volume: 70
+initial_volume: 100          # Pi output. 100 = let the TV do the volume
+volume_control: auto         # auto | tv | pi   (auto = TV when CEC works)
 audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
 ```
 
@@ -642,6 +714,7 @@ nostalgiabox/
 ├── playlist.py    the shuffle bag (each episode once, then reshuffle)
 ├── channel.py     folder scanning, tune-in modes, channel navigation
 ├── player.py      mpv player (+ a mock for tests)
+├── volume.py      TV vs Pi volume mode
 ├── overlay.py     the green on-screen display
 ├── crt.py         the CRT shader
 ├── input/         remote input (Flirc/keyboard, HDMI-CEC, keymap)

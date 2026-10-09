@@ -27,6 +27,7 @@ from .config import Config
 from .input.manager import InputManager, create_backends
 from .overlay import OverlayManager
 from .player import END_EOF, END_ERROR, MockPlayer, Player
+from .volume import resolve_volume_control
 from .static_gen import (
     COLORBARS_FILENAME,
     DEFAULT_ASSETS_DIR,
@@ -58,9 +59,15 @@ class TVApp:
 
         self.lineup: ChannelLineup = build_lineup(config)
 
-        # Runtime state.
+        # Runtime state. ``volume`` / ``muted`` are the only Pi level. mpv is
+        # told this number at startup and again after every file; it is not
+        # read back, and nothing else (ALSA, a saved per-show gain) writes it.
         self.volume = config.initial_volume
         self.muted = False
+        # "tv" sends volup/voldown/mute over HDMI-CEC and leaves this level
+        # alone. "pi" steps ``self.volume``. Refined in start() once we know
+        # whether a CEC backend exists.
+        self.volume_mode = "pi"
         self.standby = False
         self.powered_off = False
         self._playing_path: Optional[Path] = None
@@ -133,8 +140,8 @@ class TVApp:
     # -- lifecycle ----------------------------------------------------------
     def start(self) -> None:
         """Power on: set volume, start input, and tune to the first channel."""
-        self.player.set_volume(self.volume)
-        self.player.set_mute(self.muted)
+        self._resolve_volume_mode()
+        self._apply_output_volume()
         self.input.start()
         self._select_start_channel()
         self.tune_current(show_static=False)
@@ -183,6 +190,7 @@ class TVApp:
         if self._switch_deadline is not None and now >= self._switch_deadline:
             self._switch_deadline = None
             self.player.commit_switch()
+            self._apply_output_volume()
             # Flash the channel banner right as the picture actually changes.
             if self._pending_banner is not None:
                 self.overlay.show_channel_bug(*self._pending_banner)
@@ -288,6 +296,7 @@ class TVApp:
                 start=request.start,
                 static_seconds=self.config.transition_duration,
             )
+            self._apply_output_volume()
         elif self.config.bridge_seconds > 0 and self._playing_path is not None:
             # No transition effect: keep the current show playing while the next
             # channel preloads, then cut over (no frozen frame). The banner is
@@ -304,6 +313,7 @@ class TVApp:
     def _play_request(self, request: PlayRequest) -> None:
         self._playing_path = request.path
         self.player.play(request.path, start=request.start)
+        self._apply_output_volume()
 
     def _show_no_signal(self, channel: Channel) -> None:
         self._switch_deadline = None
@@ -313,16 +323,53 @@ class TVApp:
             self.player.play_loop(self._colorbars_path)
         else:
             self.player.stop()
+        self._apply_output_volume()
         self.overlay.show_message(
             f"CH {channel.number:02d}  {channel.name}  -  NO SIGNAL", duration=6.0
         )
 
     # -- volume -------------------------------------------------------------
+    def _resolve_volume_mode(self) -> None:
+        """Pick TV passthrough or the Pi knob before input starts.
+
+        The ignore flag has to be set first: cec-client echoes a volume key
+        it just transmitted, and treating that echo as another press would
+        run the level away on its own.
+        """
+        cec = self._cec_backend()
+        self.volume_mode = resolve_volume_control(
+            self.config.volume_control, cec_available=cec is not None
+        )
+        if self.volume_mode == "tv" and cec is not None:
+            cec.ignore_volume_keys = True
+            log.info("volume keys control the TV over HDMI-CEC; Pi output stays at %s", self.volume)
+        elif self.volume_mode == "pi" and str(self.config.volume_control).lower() != "pi":
+            log.info("HDMI-CEC volume is unavailable; the remote controls the Pi volume")
+
+    def _cec_backend(self):
+        for backend in self.input.backends:
+            send = getattr(backend, "send_command", None)
+            if callable(send):
+                return backend
+        return None
+
+    def _apply_output_volume(self) -> None:
+        """Push the remembered Pi level. Does not move the on-screen bar."""
+        self.player.set_volume(self.volume)
+        self.player.set_mute(self.muted)
+
     def _volume_up(self) -> None:
+        if self.volume_mode == "tv":
+            self._tv_volume("volup", "TV VOL +")
+            return
         self._set_volume(self.volume + self.config.volume_step, unmute=True)
 
     def _volume_down(self) -> None:
-        # One press below zero cleanly powers off the box (safe to unplug).
+        if self.volume_mode == "tv":
+            self._tv_volume("voldown", "TV VOL -")
+            return
+        # Pi mode only: one press below zero cleanly powers off the box.
+        # In TV mode the keys never move this counter, so they cannot shut down.
         if self.config.power_off_on_min_volume and not self.muted and self.volume <= 0:
             self._power_off()
             return
@@ -332,9 +379,18 @@ class TVApp:
         self.volume = max(0, min(100, value))
         if unmute and self.muted:
             self.muted = False
-            self.player.set_mute(False)
-        self.player.set_volume(self.volume)
+        self._apply_output_volume()
         self.overlay.show_volume(self.volume, self.muted)
+
+    def _tv_volume(self, command: str, message: str) -> None:
+        """One Flirc volume press becomes one CEC command. The Pi level stays."""
+        cec = self._cec_backend()
+        sent = bool(cec.send_command(command)) if cec is not None else False
+        if sent:
+            self.overlay.show_message(message)
+            return
+        log.warning("HDMI-CEC %s was not sent; Pi volume left at %s", command, self.volume)
+        self.overlay.show_message("NO TV VOLUME")
 
     def _power_off(self) -> None:
         """Cleanly shut the Pi down so it's safe to unplug."""
@@ -361,8 +417,11 @@ class TVApp:
             log.exception("power-off command failed: %s", command)
 
     def _toggle_mute(self) -> None:
+        if self.volume_mode == "tv":
+            self._tv_volume("mute", "TV MUTE")
+            return
         self.muted = not self.muted
-        self.player.set_mute(self.muted)
+        self._apply_output_volume()
         self.overlay.show_volume(self.volume, self.muted)
 
     # -- info / standby -----------------------------------------------------

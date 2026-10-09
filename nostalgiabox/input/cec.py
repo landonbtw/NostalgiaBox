@@ -16,12 +16,26 @@ import shutil
 import subprocess
 from typing import List, Optional
 
+from ..actions import Action
 from .base import InputBackend
 from .keymap import cec_key_to_event
 
 log = logging.getLogger(__name__)
 
 _KEY_PRESSED_RE = re.compile(r"key pressed:\s*(.+?)\s*(?:\(|$)", re.IGNORECASE)
+
+# cec-client interactive commands. One process both reads keys and sends them;
+# a second cec-client cannot share the adapter.
+_CEC_VOLUME_COMMANDS = {
+    "volup": "volume up",
+    "voldown": "volume down",
+    "mute": "mute",
+}
+
+# Actions that are volume on the way in. When we are the ones sending volup /
+# voldown / mute, cec-client echoes them back as "key pressed:" lines. Handling
+# that echo would send the command again.
+_VOLUME_ACTIONS = frozenset({Action.VOLUME_UP, Action.VOLUME_DOWN, Action.MUTE})
 
 
 class CecBackend(InputBackend):
@@ -41,6 +55,9 @@ class CecBackend(InputBackend):
         self._osd_name = osd_name
         self._extra_args = list(extra_args) if extra_args else []
         self._proc: Optional[subprocess.Popen] = None
+        # Set by the app before start() when volume keys are forwarded to the
+        # TV, so the echo of our own volup/voldown/mute is not a new press.
+        self.ignore_volume_keys = False
 
     @staticmethod
     def is_available(binary: str = "cec-client") -> bool:
@@ -60,7 +77,8 @@ class CecBackend(InputBackend):
         try:
             self._proc = subprocess.Popen(
                 cmd,
-                stdin=subprocess.DEVNULL,
+                # stdin stays open so send_command can write volup/voldown/mute.
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -82,21 +100,51 @@ class CecBackend(InputBackend):
         if not match:
             return
         event = cec_key_to_event(match.group(1))
-        if event is not None:
-            self.emit(event)
+        if event is None:
+            return
+        if self.ignore_volume_keys and event.action in _VOLUME_ACTIONS:
+            return
+        self.emit(event)
+
+    def send_command(self, command: str) -> bool:
+        """Send one cec-client command, such as ``volup``, ``voldown``, or ``mute``.
+
+        Returns False when the client is not running. The caller leaves the Pi
+        volume unchanged in that case.
+        """
+        proc = self._proc
+        if proc is None or proc.stdin is None:
+            return False
+        line = str(command).strip().lower()
+        if line not in _CEC_VOLUME_COMMANDS:
+            log.warning("refusing unknown HDMI-CEC command %r", command)
+            return False
+        try:
+            proc.stdin.write(line + "\n")
+            proc.stdin.flush()
+            return True
+        except (OSError, ValueError):
+            log.warning("HDMI-CEC command %s failed", line, exc_info=True)
+            return False
 
     def _close(self) -> None:
-        if self._proc is None:
+        proc = self._proc
+        if proc is None:
             return
+        self._proc = None
         try:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
+            if proc.stdin is not None:
+                proc.stdin.close()
         except OSError:
             pass
-        self._proc = None
+        try:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        except OSError:
+            pass
 
 
 __all__ = ["CecBackend"]

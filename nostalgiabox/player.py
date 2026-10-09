@@ -102,6 +102,96 @@ class Player(ABC):
         """Release resources."""
 
 
+def playback_audio_options() -> dict:
+    """mpv options that keep a single, unity software volume.
+
+    mpv's own ``volume-max`` defaults to 130, so "100" on a bar is not the
+    loudest the audio engine will go — anything that does ``add volume`` can
+    keep boosting after our bar has expired. ``replaygain`` is forced off so a
+    new episode cannot retag the gain (there is no loudnorm/dynaudnorm either).
+    ``input-terminal`` is off because the TV service attaches mpv to the
+    console: Flirc keys would otherwise reach mpv as a second volume control.
+    """
+    return {
+        "volume": 100,
+        "volume_max": 100,
+        "replaygain": "no",
+        "input_terminal": False,
+    }
+
+
+def build_mpv_options(
+    *,
+    fullscreen: bool = True,
+    hwdec: str = "auto-safe",
+    glsl_shaders: Optional[str] = None,
+    force_4_3: bool = True,
+    audio_device: Optional[str] = None,
+    extra_options: Optional[dict] = None,
+) -> dict:
+    """The libmpv option dict for :class:`MpvPlayer` (no display required)."""
+    options = dict(
+        # We drive the OSD ourselves, so disable mpv's own on-screen
+        # controller, default keybindings, and the console keyboard. The
+        # service runs on tty1, and Flirc is a keyboard — if mpv also reads
+        # that tty it keeps its own volume (and seek) keys.
+        osc=False,
+        input_default_bindings=False,
+        input_vo_keyboard=False,
+        # Keep a window alive even with nothing playing so the screen never
+        # drops to a console/desktop between episodes or on an empty channel.
+        idle="yes",
+        force_window="yes",
+        # keep-open=yes means a file that reaches its end PAUSES on the last
+        # frame and sets the "eof-reached" property instead of silently
+        # unloading. We watch that property to roll the next episode. This
+        # avoids a nasty race: replacing a file (on a channel change) also
+        # fires an "end-file" event for the outgoing file, and its reason is
+        # unreliable across mpv versions - reacting to it caused episodes to
+        # be skipped or the picture to hang. "eof-reached" only ever trips on
+        # a genuine end-of-file, so it is the robust signal.
+        keep_open="yes",
+        # Preload the next playlist entry while the current one plays. This
+        # is what makes channel changes near-instant: during the ~0.5s of
+        # static, mpv is already opening/decoding the episode, so it appears
+        # the moment the static ends (see play_transition).
+        prefetch_playlist="yes",
+        fullscreen=fullscreen,
+        # Hardware decode + a sensible video output for the Pi. gpu with the
+        # drm context works headless on the Pi 4; libmpv falls back sanely.
+        hwdec=hwdec,
+        # 4:3 shows should be pillarboxed (not stretched) inside the frame.
+        keepaspect="yes",
+        video_unscaled="no",
+        # Hide the mouse cursor - this is a TV, not a computer.
+        cursor_autohide="always",
+        # A pleasant, readable OSD font size relative to the window.
+        osd_font_size=40,
+    )
+    options.update(playback_audio_options())
+    if audio_device:
+        # Force audio to a specific output (e.g. HDMI) instead of mpv's
+        # default (which can pick the 3.5mm jack on a Raspberry Pi).
+        options["audio_device"] = audio_device
+    if glsl_shaders:
+        # CRT curvature/rounding/vignette/scanlines. Applied globally (always
+        # on) so a newly-loaded episode is never shown for a frame or two
+        # without the effect on a channel change.
+        options["glsl_shaders"] = glsl_shaders
+    if force_4_3:
+        # Fit ANY source into a 4:3 raster (letterboxing 16:9 with black
+        # bars), so every show - and the static/colour-bar clips - appears in
+        # the same 4:3 tube-TV frame. mpv then pillarboxes that 4:3 image on
+        # a 16:9 TV, and the CRT shader curves it.
+        options["vf"] = (
+            "lavfi=[scale=960:720:force_original_aspect_ratio=decrease,"
+            "pad=960:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1]"
+        )
+    if extra_options:
+        options.update(extra_options)
+    return options
+
+
 class MpvPlayer(Player):
     """A :class:`Player` backed by libmpv, tuned for a Raspberry Pi + TV."""
 
@@ -129,65 +219,23 @@ class MpvPlayer(Player):
         if fonts_dir is not None:
             _install_fonts_for_mpv(fonts_dir)
 
-        options = dict(
-            # We drive the OSD ourselves, so disable mpv's own on-screen
-            # controller and default keybindings.
-            osc=False,
-            input_default_bindings=False,
-            input_vo_keyboard=False,
-            # Keep a window alive even with nothing playing so the screen never
-            # drops to a console/desktop between episodes or on an empty channel.
-            idle="yes",
-            force_window="yes",
-            # keep-open=yes means a file that reaches its end PAUSES on the last
-            # frame and sets the "eof-reached" property instead of silently
-            # unloading. We watch that property to roll the next episode. This
-            # avoids a nasty race: replacing a file (on a channel change) also
-            # fires an "end-file" event for the outgoing file, and its reason is
-            # unreliable across mpv versions - reacting to it caused episodes to
-            # be skipped or the picture to hang. "eof-reached" only ever trips on
-            # a genuine end-of-file, so it is the robust signal.
-            keep_open="yes",
-            # Preload the next playlist entry while the current one plays. This
-            # is what makes channel changes near-instant: during the ~0.5s of
-            # static, mpv is already opening/decoding the episode, so it appears
-            # the moment the static ends (see play_transition).
-            prefetch_playlist="yes",
+        options = build_mpv_options(
             fullscreen=fullscreen,
-            # Hardware decode + a sensible video output for the Pi. gpu with the
-            # drm context works headless on the Pi 4; libmpv falls back sanely.
             hwdec=hwdec,
-            # 4:3 shows should be pillarboxed (not stretched) inside the frame.
-            keepaspect="yes",
-            video_unscaled="no",
-            # Hide the mouse cursor - this is a TV, not a computer.
-            cursor_autohide="always",
-            # A pleasant, readable OSD font size relative to the window.
-            osd_font_size=40,
+            glsl_shaders=glsl_shaders,
+            force_4_3=force_4_3,
+            audio_device=audio_device,
+            extra_options=extra_options,
         )
-        if audio_device:
-            # Force audio to a specific output (e.g. HDMI) instead of mpv's
-            # default (which can pick the 3.5mm jack on a Raspberry Pi).
-            options["audio_device"] = audio_device
-        if glsl_shaders:
-            # CRT curvature/rounding/vignette/scanlines. Applied globally (always
-            # on) so a newly-loaded episode is never shown for a frame or two
-            # without the effect on a channel change.
-            options["glsl_shaders"] = glsl_shaders
-        if force_4_3:
-            # Fit ANY source into a 4:3 raster (letterboxing 16:9 with black
-            # bars), so every show - and the static/colour-bar clips - appears in
-            # the same 4:3 tube-TV frame. mpv then pillarboxes that 4:3 image on
-            # a 16:9 TV, and the CRT shader curves it.
-            options["vf"] = (
-                "lavfi=[scale=960:720:force_original_aspect_ratio=decrease,"
-                "pad=960:720:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1]"
-            )
-        if extra_options:
-            options.update(extra_options)
 
         self._mpv = mpv.MPV(**options)
         self._closed = False
+        # Last level the app asked for. loadfile can leave mpv's gain elsewhere
+        # (the option default, or a tag on the new file); we push this again
+        # after every load. The app is the source of truth and calls set_volume
+        # with the same number.
+        self._volume = int(options.get("volume", 100))
+        self._muted = False
         # True while a looping filler clip (static / colour bars) is showing, so
         # its (non-)ending never advances the channel.
         self._suppress = True
@@ -230,6 +278,8 @@ class MpvPlayer(Player):
             log.exception("failed to play %s", path)
             if self.on_end is not None:
                 self.on_end(END_ERROR)
+            return
+        self._reapply_audio()
 
     def play_loop(self, path: Path) -> None:
         self._suppress = True  # a looping clip should never trigger "next"
@@ -239,6 +289,8 @@ class MpvPlayer(Player):
             self._mpv.pause = False
         except Exception:  # noqa: BLE001
             log.exception("failed to loop %s", path)
+            return
+        self._reapply_audio()
 
     def play_transition(
         self,
@@ -267,6 +319,8 @@ class MpvPlayer(Player):
         except Exception:  # noqa: BLE001
             log.exception("failed transition to %s", target_path)
             self.play(target_path, start=start)
+            return
+        self._reapply_audio()
 
     def preload_next(self, target_path: Path, *, start: float = 0.0) -> None:
         # Keep the currently-playing item on screen and append the target as a
@@ -292,6 +346,8 @@ class MpvPlayer(Player):
             self._mpv.pause = False
         except Exception:  # noqa: BLE001
             log.debug("commit_switch failed", exc_info=True)
+            return
+        self._reapply_audio()
 
     def stop(self) -> None:
         self._suppress = True
@@ -302,14 +358,31 @@ class MpvPlayer(Player):
 
     # -- audio --------------------------------------------------------------
     def set_volume(self, volume: int) -> None:
+        self._volume = max(0, min(100, int(volume)))
+        self._push_volume()
+
+    def set_mute(self, muted: bool) -> None:
+        self._muted = bool(muted)
+        self._push_mute()
+
+    def _reapply_audio(self) -> None:
+        """Push the remembered level again after a file load.
+
+        A new episode must not bring its own gain. The number stored here is
+        whatever :meth:`set_volume` last received from the app.
+        """
+        self._push_volume()
+        self._push_mute()
+
+    def _push_volume(self) -> None:
         try:
-            self._mpv.volume = max(0, min(100, int(volume)))
+            self._mpv.volume = self._volume
         except Exception:  # noqa: BLE001
             log.debug("could not set volume", exc_info=True)
 
-    def set_mute(self, muted: bool) -> None:
+    def _push_mute(self) -> None:
         try:
-            self._mpv.mute = bool(muted)
+            self._mpv.mute = self._muted
         except Exception:  # noqa: BLE001
             log.debug("could not set mute", exc_info=True)
 
@@ -526,4 +599,6 @@ __all__ = [
     "END_EOF",
     "END_ERROR",
     "END_STOPPED",
+    "playback_audio_options",
+    "build_mpv_options",
 ]

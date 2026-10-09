@@ -13,15 +13,37 @@ import logging
 import select
 from typing import Dict, List, Optional, Sequence
 
-from ..actions import InputEvent
+from ..actions import Action, InputEvent
 from .base import InputBackend
 from .keymap import evdev_key_to_event
 
 log = logging.getLogger(__name__)
 
 # Key-event values reported by evdev: 0=up, 1=down, 2=autorepeat.
+_KEY_UP = 0
 _KEY_DOWN = 1
 _KEY_REPEAT = 2
+
+# Channel surfing may repeat while the key is held. Volume and mute must not:
+# Flirc often delays or drops the key-up, and the kernel then keeps sending
+# autorepeat. Treating those as more presses is why one tap kept raising the
+# sound after the on-screen bar had gone.
+_REPEAT_ACTIONS = frozenset({Action.CHANNEL_UP, Action.CHANNEL_DOWN})
+
+
+def key_event_should_emit(value: int, action: Action, *, allow_repeat: bool) -> bool:
+    """Return True when this evdev key state should become one app action.
+
+    ``value`` is 0 (released), 1 (pressed), or 2 (autorepeat). A press emits
+    once. A release never emits. Autorepeat emits only for channel keys, and
+    only when the backend allows it. Volume, mute, digits, and power ignore
+    repeat, so a stuck or missed key-up cannot keep stepping.
+    """
+    if value == _KEY_DOWN:
+        return True
+    if value == _KEY_REPEAT and allow_repeat and action in _REPEAT_ACTIONS:
+        return True
+    return False
 
 
 class KeyboardBackend(InputBackend):
@@ -122,12 +144,11 @@ class KeyboardBackend(InputBackend):
     def _handle_key_event(self, event) -> None:
         from evdev import ecodes
 
-        if event.value == _KEY_DOWN:
-            pass
-        elif event.value == _KEY_REPEAT and self._allow_repeat:
-            pass
-        else:
-            return  # key-up, or repeats when disabled
+        # Key-up is ignored here. Volume stops because repeats are not turned
+        # into more volume steps (see key_event_should_emit), so the stream
+        # ending — or a missing key-up — cannot keep moving the level.
+        if event.value == _KEY_UP:
+            return
 
         key_name = _code_to_name(ecodes.KEY, event.code)
         if key_name is None:
@@ -135,15 +156,8 @@ class KeyboardBackend(InputBackend):
         input_event = self._lookup(key_name)
         if input_event is None:
             return
-        # Only volume/channel keys should auto-repeat when held; ignore repeats
-        # for digits, enter, power, etc. so a held button doesn't misbehave.
-        from ..actions import Action
-
-        if event.value == _KEY_REPEAT and input_event.action not in (
-            Action.VOLUME_UP,
-            Action.VOLUME_DOWN,
-            Action.CHANNEL_UP,
-            Action.CHANNEL_DOWN,
+        if not key_event_should_emit(
+            event.value, input_event.action, allow_repeat=self._allow_repeat
         ):
             return
         self.emit(input_event)
@@ -172,4 +186,4 @@ def _code_to_name(key_table, code: int) -> Optional[str]:
     return name
 
 
-__all__ = ["KeyboardBackend"]
+__all__ = ["KeyboardBackend", "key_event_should_emit"]
