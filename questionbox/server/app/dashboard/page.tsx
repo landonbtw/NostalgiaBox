@@ -15,19 +15,22 @@ const DIGEST_NOTE: Record<string, string> = {
 export default async function DashboardHome({
   searchParams,
 }: {
-  searchParams: Promise<{ digest?: string }>;
+  searchParams: Promise<{ digest?: string; reason?: string }>;
 }) {
   const configured = isSupabaseConfigured();
   const today = todayStr();
   const summary = configured ? await getDailySummary(today) : null;
-  const { digest } = await searchParams;
+  const { digest, reason } = await searchParams;
 
   return (
     <section>
       <h1>Today</h1>
 
       {digest && DIGEST_NOTE[digest] && (
-        <p className={digest === "sent" ? "note-ok" : "alert"}>{DIGEST_NOTE[digest]}</p>
+        <p className={digest === "sent" ? "note-ok" : "alert"}>
+          {DIGEST_NOTE[digest]}
+          {digest === "error" && reason ? ` (${decodeURIComponent(reason)})` : ""}
+        </p>
       )}
 
       {!configured && (

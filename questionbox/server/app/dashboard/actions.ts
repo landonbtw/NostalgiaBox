@@ -12,5 +12,9 @@ export async function sendDigestNowAction(): Promise<void> {
   if (!isDigestConfigured()) redirect("/dashboard?digest=unconfigured");
 
   const result = await runDigest(todayStr(), /* force */ true);
-  redirect(`/dashboard?digest=${result.send.sent ? "sent" : "error"}`);
+  if (result.send.sent) redirect("/dashboard?digest=sent");
+  // Surface the actual failure reason (e.g. the Resend API error) so it's clear
+  // what to fix, instead of a generic "check your settings".
+  const reason = result.send.error ?? result.send.skipped ?? "unknown";
+  redirect(`/dashboard?digest=error&reason=${encodeURIComponent(reason)}`);
 }

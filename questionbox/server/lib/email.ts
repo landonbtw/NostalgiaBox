@@ -33,7 +33,10 @@ export function isDigestConfigured(): boolean {
 export async function sendMessage(msg: OutgoingMessage): Promise<SendResult> {
   if (!isDigestConfigured()) return { sent: false, skipped: "not_configured" };
   try {
-    return provider() === "sms" ? await sendViaTwilio(msg) : await sendViaResend(msg);
+    const result = provider() === "sms" ? await sendViaTwilio(msg) : await sendViaResend(msg);
+    // Log non-throwing failures (e.g. a Resend 403) so the reason shows in Vercel logs.
+    if (!result.sent && result.error) console.error("[digest] send rejected:", result.error);
+    return result;
   } catch (e) {
     console.error("[digest] send failed:", e);
     return { sent: false, error: (e as Error).message };

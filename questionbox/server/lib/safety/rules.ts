@@ -33,7 +33,7 @@ export interface SafetyRules {
 export const DEFAULT_RULES: SafetyRules = {
   version: "2026-07-27",
   allow: [
-    { id: "how-things-work", label: "how things work", patterns: ["how does", "how do", "why does", "why do", "what makes", "how is .* made"] },
+    { id: "how-things-work", label: "how things work", patterns: ["how does", "how do", "how are", "why does", "why do", "why is", "why are", "what makes", "how is .* made", "how are .* made", "what is .* made of", "what are .* made of", "what is .* used for", "what does .* do"] },
     { id: "animals", label: "animals", patterns: ["animal", "dog", "cat", "lion", "fish", "bird", "insect", "bug", "dinosaur", "cow", "horse", "elephant", "spider", "snake", "frog", "bee"] },
     { id: "nature", label: "nature", patterns: ["tree", "plant", "flower", "rain", "cloud", "weather", "ocean", "river", "mountain", "volcano", "rainbow", "wind", "leaf", "leaves"] },
     { id: "space", label: "space", patterns: ["space", "moon", "sun", "star", "planet", "mars", "earth", "rocket", "galaxy", "comet", "astronaut"] },
