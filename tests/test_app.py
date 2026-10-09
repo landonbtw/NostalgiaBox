@@ -45,7 +45,7 @@ def test_start_tunes_to_start_channel_and_plays(tmp_path):
     app.start()
     assert app.lineup.current.number == 2
     assert player.current is not None  # an episode is playing
-    assert player.volume == 70
+    assert player.volume == 100
     assert player.overlays.get(1) and "Dragon Tales" in player.overlays[1]
 
 
@@ -63,7 +63,7 @@ def test_channel_up_down_wraps(tmp_path):
 
 
 def test_volume_controls(tmp_path):
-    app, player, _ = build_app(tmp_path)
+    app, player, _ = build_app(tmp_path, initial_volume=70)
     app.start()
     send(app, Action.VOLUME_UP)
     assert app.volume == 75 and player.volume == 75

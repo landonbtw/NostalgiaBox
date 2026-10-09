@@ -97,14 +97,26 @@ crt:
   scanline_intensity: 0.12
 
 # --- Audio -------------------------------------------------------------------
-initial_volume: 70        # 0-100
-volume_step: 5            # how much each volume press changes it
+# 100 leaves the Pi at full output so the TV's volume buttons (or the TV's own
+# remote) are the real knob. Drop this only if you want the Pi to attenuate.
+initial_volume: 100       # 0-100
+volume_step: 5            # Pi mode: how much each volume press changes it
+# Who the Flirc volume keys control.
+#   auto  - the TV over HDMI-CEC when cec-client is installed, otherwise the Pi
+#   tv    - always try the TV; falls back to the Pi if CEC is not available
+#   pi    - the on-screen bar and mpv. The TV's volume stays where you set it.
+# Flirc has no CEC mode of its own. Program it as in the README (Right = volume
+# up, Left = volume down, m = mute). The TV must have CEC turned on (Anynet+,
+# SimpLink, BRAVIA Sync, or the set's "HDMI control" name).
+volume_control: auto
 # Force audio to a specific output. On a Pi the default can be the 3.5mm jack;
 # for a TV you want HDMI. Run `nostalgiabox --list-audio` to see the names.
 # audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"   # HDMI0 (use vc4hdmi1 for HDMI1)
 
-# Pressing volume-down once more when already at 0 cleanly powers off the Pi so
-# it's safe to unplug (needs the sudo rule from scripts/install-service.sh).
+# Pi mode only: pressing volume-down once more when already at 0 cleanly powers
+# off the Pi so it's safe to unplug (needs the sudo rule from
+# scripts/install-service.sh). In tv/auto mode the volume keys never move the
+# Pi level, so they cannot shut the box down — use standby, or `sudo poweroff`.
 power_off_on_min_volume: true
 # power_off_command: ["sudo", "poweroff"]   # override the shutdown command
 

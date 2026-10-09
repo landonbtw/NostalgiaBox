@@ -13,6 +13,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
+from .volume import VOLUME_CONTROLS
+
 
 # Video containers we consider "an episode" when scanning a channel folder.
 DEFAULT_VIDEO_EXTENSIONS: tuple[str, ...] = (
@@ -132,8 +134,14 @@ class Config:
     crt: CrtConfig = field(default_factory=CrtConfig)
 
     # Audio.
-    initial_volume: int = 70              # 0-100
+    # 100 keeps the Pi at unity so the TV's own volume is the real knob.
+    # A saved config.yaml that still says 70 keeps 70 until that line is edited.
+    initial_volume: int = 100             # 0-100
     volume_step: int = 5
+    # auto: HDMI-CEC to the TV when cec-client is available, else the Pi.
+    # tv:   ask for the TV, fall back to the Pi when CEC is missing.
+    # pi:   the remote always changes NostalgiaBox's software volume.
+    volume_control: str = "auto"
     audio_device: Optional[str] = None    # mpv audio device (e.g. HDMI); None = auto
     # Press volume-down once more when already at 0 to cleanly power off the Pi
     # (so it's safe to unplug). The command run to shut down:
@@ -427,8 +435,13 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
     start_channel = data.get("start_channel")
     start_channel = int(start_channel) if start_channel is not None else None
 
-    initial_volume = _clamp_int(data.get("initial_volume", 70), 0, 100, "initial_volume")
+    initial_volume = _clamp_int(data.get("initial_volume", 100), 0, 100, "initial_volume")
     volume_step = _clamp_int(data.get("volume_step", 5), 1, 100, "volume_step")
+    volume_control = str(data.get("volume_control", "auto")).strip().lower()
+    if volume_control not in VOLUME_CONTROLS:
+        raise ConfigError(
+            f"'volume_control' must be one of {VOLUME_CONTROLS}, got '{volume_control}'"
+        )
     audio_device = data.get("audio_device")
     audio_device = str(audio_device) if audio_device else None
 
@@ -457,6 +470,7 @@ def config_from_dict(data: Dict[str, Any], *, base_dir: Optional[Path] = None) -
         crt=_parse_crt(data.get("crt")),
         initial_volume=initial_volume,
         volume_step=volume_step,
+        volume_control=volume_control,
         audio_device=audio_device,
         power_off_on_min_volume=bool(data.get("power_off_on_min_volume", True)),
         power_off_command=power_off_command,
@@ -602,4 +616,5 @@ __all__ = [
     "library_problem",
     "TUNE_IN_MODES",
     "TRANSITION_EFFECTS",
+    "VOLUME_CONTROLS",
 ]
