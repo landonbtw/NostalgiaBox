@@ -1,0 +1,400 @@
+#!/usr/bin/env python3
+"""nostalgiabox-helper: the ONLY thing the setup web page is allowed to run as root.
+
+Installed root-owned at /usr/local/sbin/nostalgiabox-helper and allowed through
+sudo for the NostalgiaBox user (see /etc/sudoers.d/nostalgiabox-setup).
+
+Usage:  nostalgiabox-helper <command>   (JSON request on stdin, JSON answer on stdout)
+
+Commands:
+  browse-mount   mount a network share at a temporary spot so the page can browse it
+  browse-umount  unmount that temporary share
+  apply-mounts   make /etc/fstab + the mounts match the channels saved on the page
+  ensure-mounts  (re)mount any saved share that is not mounted right now
+  power          reboot | poweroff
+  set-timezone   change the time zone
+
+Everything coming from the web page is treated as untrusted and re-validated here.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+ETC = "/etc/nostalgiabox-setup"
+CREDS = ETC + "/creds"
+MOUNT_ROOT = "/mnt/nostalgiabox"
+BROWSE_MP = MOUNT_ROOT + "/.browse"
+RUNDIR = "/run/nostalgiabox-setup"
+FSTAB = "/etc/fstab"
+BEGIN = "# >>> nostalgiabox-setup (managed automatically, do not edit) >>>"
+END = "# <<< nostalgiabox-setup <<<"
+MAX_CHANNELS = 30
+
+HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+SMB_SHARE_RE = re.compile(r"^[\w][\w .-]{0,79}$")
+NFS_EXPORT_RE = re.compile(r"^/[\w .@+/-]{0,199}$")
+USER_RE = re.compile(r"^[\w.@\\-]{0,64}$")
+
+
+class Fail(Exception):
+    """An expected problem; the message is shown to the person using the page."""
+
+
+# ------------------------------------------------------------------ plumbing
+def run(cmd, timeout=60):
+    """Run a command, return (returncode, combined output). Replaced in tests."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout + r.stderr).strip()
+    except subprocess.TimeoutExpired:
+        return 124, "timed out"
+    except OSError as e:
+        return 127, str(e)
+
+
+def is_mounted(path):
+    return os.path.ismount(path)
+
+
+def app_ids():
+    """uid/gid the NostalgiaBox user runs as (written by the installer, root-owned)."""
+    try:
+        with open(ETC + "/helper.json") as f:
+            d = json.load(f)
+        return int(d["uid"]), int(d["gid"])
+    except (OSError, ValueError, KeyError):
+        raise Fail("The helper isn't set up properly (missing helper.json). Re-run the installer.")
+
+
+def explain_mount_error(text):
+    t = (text or "").lower()
+    if "no such file" in t or "error(2)" in t or "bad network name" in t or "does not exist" in t:
+        return "Found the server, but not that share or folder. Check the spelling."
+    if "permission denied" in t or "error(13)" in t or "logon failure" in t or "access denied" in t \
+            or "authentication" in t or "error(1)" in t:
+        return ("The server said no. Check the username and password, and that the share "
+                "allows this user (for NFS: that the share's NFS rules allow this box's address).")
+    if "name or service not known" in t or "could not resolve" in t or "unable to find suitable address" in t \
+            or "unknown host" in t:
+        return "Can't find a server with that name. Try its IP address instead."
+    if "no route to host" in t or "error(113)" in t or "unreachable" in t or "host is down" in t \
+            or "error(112)" in t or "timed out" in t or "error(110)" in t or "connection refused" in t:
+        return "Can't reach that server. Check it is on, on the same network, and the address is right."
+    if "wrong fs type" in t or "not supported by the system" in t or "unknown filesystem" in t:
+        return "This box is missing network-share support. Re-run the installer."
+    return "Couldn't connect: " + (text or "unknown error").strip().splitlines()[-1][:200]
+
+
+# --------------------------------------------------------------- validation
+def clean_net(n):
+    if not isinstance(n, dict):
+        raise Fail("Missing network settings.")
+    t = n.get("type")
+    if t not in ("smb", "nfs"):
+        raise Fail("Type must be SMB or NFS.")
+    host = str(n.get("host", "")).strip()
+    if not HOST_RE.match(host):
+        raise Fail("Enter the server's name or IP address (letters, numbers, dots, dashes).")
+    share = str(n.get("share", "")).strip()
+    if t == "smb":
+        share = share.strip("/\\")
+        if not SMB_SHARE_RE.match(share):
+            raise Fail("Enter just the share name (no slashes). Put sub-folders in the Folder box.")
+        user = str(n.get("username", "")).strip()
+        if not USER_RE.match(user):
+            raise Fail("The username has characters that aren't allowed.")
+    else:
+        if not share.startswith("/"):
+            share = "/" + share
+        share = share.rstrip("/") or "/"
+        if not NFS_EXPORT_RE.match(share) or ".." in share.split("/"):
+            raise Fail("Enter the NFS export path, like /mnt/user/media.")
+        user = ""
+    return {"type": t, "host": host, "share": share, "username": user}
+
+
+def clean_password(p):
+    if p is None:
+        return None
+    p = str(p)
+    if re.search(r"[\r\n\x00]", p) or len(p) > 128:
+        raise Fail("The password has characters that aren't allowed.")
+    return p
+
+
+def clean_id(v):
+    try:
+        i = int(v)
+    except (TypeError, ValueError):
+        raise Fail("Bad channel number.")
+    if not 1 <= i <= MAX_CHANNELS:
+        raise Fail("Bad channel number.")
+    return i
+
+
+# ------------------------------------------------------------ mount options
+def fstab_escape(s):
+    return s.replace("\\", "\\134").replace(" ", "\\040").replace("\t", "\\011")
+
+
+def source_of(net):
+    return f"//{net['host']}{'/' + net['share']}" if net["type"] == "smb" else f"{net['host']}:{net['share']}"
+
+
+def mount_spec(net, cred_path, uid, gid):
+    """(fstype, source, [options]) for mount(8)."""
+    if net["type"] == "smb":
+        opts = ["ro", f"uid={uid}", f"gid={gid}", "file_mode=0444", "dir_mode=0555", "iocharset=utf8"]
+        opts.append(f"credentials={cred_path}" if net["username"] else "guest")
+        return "cifs", source_of(net), opts
+    return "nfs", source_of(net), ["ro", "soft", "timeo=100", "retrans=2"]
+
+
+def write_cred(path, user, password):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"username={user}\npassword={password}\n")
+    os.chmod(path, 0o600)
+
+
+def read_cred_user(path):
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith("username="):
+                    return line[len("username="):].rstrip("\n")
+    except OSError:
+        pass
+    return None
+
+
+def umount(path):
+    if not is_mounted(path):
+        return
+    rc, out = run(["umount", path], 30)
+    if rc != 0:
+        run(["umount", "-l", path], 30)
+
+
+# ----------------------------------------------------------------- commands
+def cmd_browse_mount(req):
+    net = clean_net(req.get("net"))
+    pw = clean_password(req.get("password"))
+    uid, gid = app_ids()
+    umount(BROWSE_MP)
+    os.makedirs(BROWSE_MP, exist_ok=True)
+    cred = None
+    if net["type"] == "smb" and net["username"]:
+        os.makedirs(RUNDIR, mode=0o700, exist_ok=True)
+        cred = RUNDIR + "/browse.cred"
+        saved = req.get("saved_channel")
+        if pw is None and saved is not None:
+            saved_path = f"{CREDS}/ch{clean_id(saved)}"
+            if read_cred_user(saved_path) == net["username"]:
+                with open(saved_path) as f:
+                    saved_pw = ""
+                    for line in f:
+                        if line.startswith("password="):
+                            saved_pw = line[len("password="):].rstrip("\n")
+                pw = saved_pw
+        write_cred(cred, net["username"], pw or "")
+    fstype, source, opts = mount_spec(net, cred, uid, gid)
+    rc, out = run(["mount", "-t", fstype, source, BROWSE_MP, "-o", ",".join(opts)], 45)
+    if cred:
+        try:
+            os.unlink(cred)
+        except OSError:
+            pass
+    if rc != 0:
+        raise Fail(explain_mount_error(out))
+    return {}
+
+
+def cmd_browse_umount(req):
+    umount(BROWSE_MP)
+    return {}
+
+
+def parse_block(text):
+    """Mount points listed in our block of /etc/fstab."""
+    inside, found = False, []
+    for line in text.splitlines():
+        if line.strip() == BEGIN:
+            inside = True
+        elif line.strip() == END:
+            inside = False
+        elif inside and line.strip() and not line.startswith("#"):
+            parts = line.split()
+            if len(parts) >= 2:
+                found.append(parts[1].replace("\\040", " "))
+    return found
+
+
+def replace_block(text, block_lines):
+    out, skipping = [], False
+    for line in text.splitlines():
+        if line.strip() == BEGIN:
+            skipping = True
+            continue
+        if line.strip() == END:
+            skipping = False
+            continue
+        if not skipping:
+            out.append(line)
+    while out and not out[-1].strip():
+        out.pop()
+    if block_lines:
+        out += ["", BEGIN] + block_lines + [END]
+    return "\n".join(out) + "\n"
+
+
+def write_fstab(new_text):
+    bak = FSTAB + ".nostalgiabox.bak"
+    if not os.path.exists(bak):
+        try:
+            with open(FSTAB) as f, open(bak, "w") as g:
+                g.write(f.read())
+        except OSError:
+            pass
+    tmp = FSTAB + ".nostalgiabox.tmp"
+    with open(tmp, "w") as f:
+        f.write(new_text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, FSTAB)
+
+
+def cmd_apply_mounts(req):
+    uid, gid = app_ids()
+    wanted = {}
+    for item in req.get("channels") or []:
+        cid = clean_id(item.get("id"))
+        net = clean_net(item.get("net"))
+        wanted[cid] = (net, clean_password(item.get("password")))
+
+    lines = []
+    os.makedirs(CREDS, mode=0o700, exist_ok=True)
+    for cid in sorted(wanted):
+        net, pw = wanted[cid]
+        cred = f"{CREDS}/ch{cid}"
+        if net["type"] == "smb" and net["username"]:
+            if pw is not None:
+                write_cred(cred, net["username"], pw)
+            elif read_cred_user(cred) != net["username"]:
+                write_cred(cred, net["username"], "")
+        else:
+            try:
+                os.unlink(cred)
+            except OSError:
+                pass
+        fstype, source, opts = mount_spec(net, cred, uid, gid)
+        opts += ["_netdev", "nofail", "x-systemd.mount-timeout=20"]
+        lines.append(f"{fstab_escape(source)} {MOUNT_ROOT}/ch{cid} {fstype} {','.join(opts)} 0 0")
+
+    try:
+        with open(FSTAB) as f:
+            old = f.read()
+    except OSError:
+        old = ""
+    old_points = parse_block(old)
+    write_fstab(replace_block(old, lines))
+
+    # Unmount anything that was ours before (changed or removed), forget removed credentials.
+    for mp in set(old_points) | {f"{MOUNT_ROOT}/ch{c}" for c in wanted}:
+        if mp.startswith(MOUNT_ROOT + "/ch"):
+            umount(mp)
+    for name in (os.listdir(CREDS) if os.path.isdir(CREDS) else []):
+        m = re.fullmatch(r"ch(\d+)", name)
+        if m and int(m.group(1)) not in wanted:
+            try:
+                os.unlink(f"{CREDS}/{name}")
+            except OSError:
+                pass
+    run(["systemctl", "daemon-reload"], 30)
+
+    results = []
+    for cid in sorted(wanted):
+        mp = f"{MOUNT_ROOT}/ch{cid}"
+        os.makedirs(mp, exist_ok=True)
+        rc, out = run(["mount", mp], 45)
+        if rc == 0 or is_mounted(mp):
+            results.append({"id": cid, "mounted": True, "error": ""})
+        else:
+            results.append({"id": cid, "mounted": False, "error": explain_mount_error(out)})
+    return {"results": results}
+
+
+def cmd_ensure_mounts(req):
+    try:
+        with open(FSTAB) as f:
+            points = parse_block(f.read())
+    except OSError:
+        points = []
+    results = []
+    for mp in points:
+        if not re.fullmatch(re.escape(MOUNT_ROOT) + r"/ch\d+", mp):
+            continue
+        if is_mounted(mp):
+            results.append({"mount": mp, "mounted": True})
+            continue
+        os.makedirs(mp, exist_ok=True)
+        rc, out = run(["mount", mp], 40)
+        results.append({"mount": mp, "mounted": rc == 0})
+    return {"results": results}
+
+
+def cmd_power(req):
+    action = req.get("action")
+    if action not in ("reboot", "poweroff"):
+        raise Fail("Unknown power action.")
+    rc, out = run(["systemctl", action], 20)
+    if rc != 0:
+        raise Fail(out or "That didn't work.")
+    return {}
+
+
+def cmd_set_timezone(req):
+    tz = str(req.get("tz", ""))
+    rc, out = run(["timedatectl", "list-timezones"], 20)
+    if rc != 0 or tz not in out.split():
+        raise Fail("Unknown time zone.")
+    rc, out = run(["timedatectl", "set-timezone", tz], 20)
+    if rc != 0:
+        raise Fail(out or "Couldn't change the time zone.")
+    return {}
+
+
+COMMANDS = {
+    "browse-mount": cmd_browse_mount,
+    "browse-umount": cmd_browse_umount,
+    "apply-mounts": cmd_apply_mounts,
+    "ensure-mounts": cmd_ensure_mounts,
+    "power": cmd_power,
+    "set-timezone": cmd_set_timezone,
+}
+
+
+def main(argv):
+    if len(argv) != 2 or argv[1] not in COMMANDS:
+        print(json.dumps({"ok": False, "error": "Unknown command."}))
+        return 2
+    try:
+        raw = sys.stdin.read(200_000)
+        req = json.loads(raw) if raw.strip() else {}
+        if not isinstance(req, dict):
+            raise Fail("Bad request.")
+        out = COMMANDS[argv[1]](req)
+        out["ok"] = True
+        print(json.dumps(out))
+    except Fail as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+    except Exception as e:  # never leak a traceback to the web page
+        print(json.dumps({"ok": False, "error": f"Helper error: {type(e).__name__}"}))
+        print(f"nostalgiabox-helper: {e!r}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

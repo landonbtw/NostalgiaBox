@@ -10,6 +10,12 @@ driven by a simple remote, sends audio over HDMI, and has an authentic
 early-2000s vibe — a green on-screen channel banner and volume bar, and a curved
 "CRT" picture. No menus, no apps, no touchscreens. Just a remote and channels.
 
+> ### 📱 BusyParent edition: set it up from your phone
+> This fork adds [`setup/`](setup/README.md), a web page for choosing channels, uploading videos,
+> pointing at a network folder (SMB/NFS, such as an Unraid/Plex server) and setting a daily
+> screen-time limit, with no config files. After installing, the TV shows the address to open.
+> **[Start here → setup/README.md](setup/README.md)**. The original guide below still works as is.
+
 Follow the steps in order. Each step says **which machine** to use, the
 **exact command** to copy, and **what you should see** when it worked.
 

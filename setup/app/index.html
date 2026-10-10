@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>NostalgiaBox setup</title>
+<style>
+:root{
+  --bg:#080c09; --card:#0f1611; --card2:#131c15; --line:#223026; --text:#dbe8dd; --muted:#8ea594;
+  --accent:#4dff5a; --accent-ink:#04200a; --accent-dim:#1d7a2a; --danger:#ff6f61; --warn:#ffcf5a;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 var(--sans);
+  background-image:repeating-linear-gradient(0deg,rgba(77,255,90,.025) 0 1px,transparent 1px 4px)}
+[hidden]{display:none!important}
+h1,h2,h3{font-family:var(--mono);font-weight:700;margin:0;letter-spacing:.02em}
+h2{font-size:1.15rem;color:var(--accent)}
+a{color:var(--accent)}
+.wrap{max-width:780px;margin:0 auto;padding:0 16px}
+header.top{position:sticky;top:0;z-index:5;background:rgba(8,12,9,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:10px;padding-top:10px;padding-bottom:10px}
+.logo{font-family:var(--mono);font-weight:800;font-size:1.15rem;color:var(--accent);text-shadow:0 0 10px rgba(77,255,90,.55);margin-right:auto}
+.chip{font:600 .78rem var(--mono);padding:4px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.on{color:var(--accent);border-color:var(--accent-dim)}
+.chip.warn{color:var(--warn);border-color:#6b5a1f}
+main{padding:16px 0 120px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 16px}
+.card>h2{margin-bottom:4px}
+.hint{color:var(--muted);font-size:.9rem;margin:2px 0 12px}
+.banner{background:#2a2410;border:1px solid #6b5a1f;color:var(--warn);border-radius:12px;padding:12px 14px;margin:0 0 16px}
+.banner a{color:var(--warn);font-weight:700}
+label.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+label.field>span,.lbl{font-size:.82rem;color:var(--muted);font-weight:600}
+input[type=text],input[type=password],input[type=number],select{
+  width:100%;background:#0a110c;color:var(--text);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;font:inherit;min-height:44px}
+input:focus,select:focus,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=color]{width:56px;height:44px;border:1px solid var(--line);border-radius:10px;background:#0a110c;padding:3px}
+.check{display:flex;align-items:center;gap:10px;min-height:44px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:560px){.grid2,.grid3{grid-template-columns:1fr}}
+.stack>*+*{margin-top:12px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.grow{flex:1 1 220px}
+.btn{font:700 .95rem var(--sans);min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--accent-dim);
+  background:transparent;color:var(--accent);cursor:pointer}
+.btn:hover{background:rgba(77,255,90,.08)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--danger);border-color:#6d2a25}
+.btn.small{min-height:36px;padding:0 12px;font-size:.85rem}
+.btn[disabled]{opacity:.5;cursor:default}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;max-width:100%}
+.seg label{cursor:pointer;flex:1 1 auto;text-align:center}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;padding:10px 10px;white-space:nowrap;min-height:44px;line-height:24px;color:var(--muted);font-weight:600;font-size:.92rem}
+.seg input:checked+span{background:var(--accent);color:var(--accent-ink)}
+.seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:-2px}
+.seg label+label span{border-left:1px solid var(--line)}
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;margin:12px 0 0;scrollbar-width:thin}
+.tab{flex:0 0 auto;font:600 .9rem var(--sans);color:var(--muted);background:#0a110c;border:1px solid var(--line);
+  border-radius:10px;padding:8px 12px;min-height:44px;cursor:pointer;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab[aria-selected=true]{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.tab .n{font-family:var(--mono);opacity:.75;margin-right:6px}
+.tab .b{font-family:var(--mono);font-size:.75rem;margin-left:7px;padding:1px 6px;border-radius:99px;background:rgba(255,255,255,.08)}
+.tab[aria-selected=true] .b{background:rgba(0,0,0,.18)}
+.panel{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px}
+.ch-head{display:flex;gap:12px;align-items:flex-end;margin-bottom:14px}
+.chnum{white-space:nowrap;font:800 1.3rem var(--mono);color:var(--accent);border:1px solid var(--accent-dim);border-radius:10px;padding:8px 12px;text-shadow:0 0 8px rgba(77,255,90,.4)}
+.drop{border:2px dashed var(--accent-dim);border-radius:12px;padding:18px;text-align:center;margin-top:14px;transition:background .15s}
+.drop.over{background:rgba(77,255,90,.1);border-color:var(--accent)}
+.drop p{margin:0 0 10px;color:var(--muted)}
+.queue{margin-top:10px}
+.qi{padding:8px 0;border-top:1px solid var(--line);font-size:.88rem}
+.qi .nm{display:flex;justify-content:space-between;gap:8px}
+.qi .nm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.bar{height:6px;background:#0a110c;border-radius:9px;margin-top:5px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent)}
+.qi.err{color:var(--danger)} .qi.done .bar i{background:var(--accent-dim)}
+.files{margin-top:12px}
+.files h3{font-size:.95rem;color:var(--text);margin-bottom:4px}
+.fi{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line);font-size:.9rem}
+.fi .p{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fi .s{color:var(--muted);font-family:var(--mono);font-size:.8rem}
+.x{background:none;border:1px solid transparent;color:var(--muted);font-size:1.1rem;min-width:36px;min-height:36px;border-radius:8px;cursor:pointer}
+.x:hover{color:var(--danger);border-color:#6d2a25}
+.status{margin:14px 0 0;font-size:.92rem}
+.status.ok{color:var(--accent)} .status.bad{color:var(--warn)}
+.msg{font-size:.9rem;margin:8px 0 0}
+.msg.err{color:var(--danger)} .msg.ok{color:var(--accent)}
+details.adv{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+details.adv summary{cursor:pointer;color:var(--muted);font-weight:600;min-height:32px}
+output{font-family:var(--mono);color:var(--accent)}
+.savebar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:rgba(8,12,9,.96);border-top:1px solid var(--line);backdrop-filter:blur(6px)}
+.savebar .wrap{display:flex;align-items:center;gap:12px;padding-top:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+#savemsg{flex:1;font-size:.9rem;color:var(--muted)}
+#savemsg.err{color:var(--danger)} #savemsg.dirty{color:var(--warn)}
+dialog{background:var(--card);color:var(--text);border:1px solid var(--accent-dim);border-radius:14px;padding:0;width:min(560px,94vw);max-height:88vh}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+dialog .dh{padding:14px 16px;border-bottom:1px solid var(--line)}
+dialog .db{padding:12px 16px;overflow:auto;max-height:58vh}
+dialog .df{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+dialog .df .grow{flex:1 1 100%;font-size:.88rem;color:var(--muted)}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;font-size:.88rem;margin-top:6px}
+.crumbs button{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;padding:4px 2px;min-height:32px}
+.crumbs span{color:var(--muted);align-self:center}
+.dir{display:flex;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);color:var(--text);
+  font:inherit;padding:12px 4px;min-height:46px;cursor:pointer;gap:10px;align-items:center}
+.dir:hover{background:rgba(77,255,90,.06)}
+.dir::before{content:"\1F4C1";font-size:1.05rem}
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.login .card{width:min(380px,100%);margin:0}
+.login h1{color:var(--accent);text-shadow:0 0 12px rgba(77,255,90,.5);font-size:1.6rem;text-align:center;margin-bottom:4px}
+.login .sub{text-align:center;color:var(--muted);margin:0 0 18px;font-size:.92rem}
+pre.log{white-space:pre-wrap;word-break:break-word;background:#0a110c;border:1px solid var(--line);border-radius:10px;padding:10px;font:.78rem/1.4 var(--mono);max-height:220px;overflow:auto;margin:8px 0 0}
+ul.warns{margin:8px 0 0;padding-left:20px;color:var(--warn)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:.92rem;margin-bottom:12px}
+.kv b{color:var(--muted);font-weight:600}
+</style>
+</head>
+<body>
+
+<!-- ============================ LOGIN ============================ -->
+<div id="login" class="login" hidden>
+  <form class="card stack" id="loginform" autocomplete="on">
+    <h1>NOSTALGIABOX</h1>
+    <p class="sub">Log in to set up your box.<br>While the box is new, the TV shows the login.</p>
+    <label class="field"><span>Username</span>
+      <input type="text" id="lu" name="username" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="username" value="admin"></label>
+    <label class="field"><span>Password</span>
+      <input type="password" id="lp" name="password" autocomplete="current-password"></label>
+    <button class="btn primary" type="submit" id="lbtn">Log in</button>
+    <p class="msg err" id="lmsg" role="alert"></p>
+  </form>
+</div>
+
+<!-- ============================== APP ============================== -->
+<div id="app" hidden>
+<header class="top"><div class="wrap">
+  <span class="logo">NOSTALGIABOX</span>
+  <span class="chip" id="tvchip">TV: …</span>
+  <button class="btn small" id="logout">Log out</button>
+</div></header>
+
+<main class="wrap">
+
+<div class="banner" id="pwbanner" hidden>
+  You're still using the starting password. <a href="#sec-security" id="pwlink">Change it now</a> so nobody else on your network can change the box.
+</div>
+
+<!-- ---------- Channels ---------- -->
+<section class="card" id="sec-channels">
+  <h2>Channels</h2>
+  <p class="hint">Each channel plays one show on endless shuffle. Pick how many, then fill in each tab.</p>
+  <div class="grid2">
+    <label class="field"><span>How many channels?</span>
+      <select id="chcount"></select></label>
+    <label class="field"><span>First channel number</span>
+      <input type="number" id="first" min="1" max="99" inputmode="numeric"></label>
+  </div>
+  <div class="tabs" id="tabs" role="tablist" aria-label="Channels"></div>
+  <div class="panel" id="panel" role="tabpanel"></div>
+</section>
+
+<!-- ---------- Playback ---------- -->
+<section class="card" id="sec-playback">
+  <h2>Playback</h2>
+  <p class="hint">What happens when you flip to a channel.</p>
+  <div class="stack">
+    <label class="field"><span>When you change channel…</span>
+      <select data-bind="playback.tune_in">
+        <option value="random">start a random episode (like flipping to a show already on)</option>
+        <option value="resume">pick up where that channel left off</option>
+        <option value="broadcast">act like a real station that keeps airing while you're away</option>
+      </select></label>
+    <div class="grid3">
+      <label class="field"><span>Start this many seconds in (from)</span>
+        <input type="number" min="0" max="600" data-bind="playback.start_offset_min" data-type="number" inputmode="numeric"></label>
+      <label class="field"><span>…to</span>
+        <input type="number" min="0" max="600" data-bind="playback.start_offset_max" data-type="number" inputmode="numeric"></label>
+      <label class="field"><span>Power on to channel</span>
+        <select id="startch" data-bind="playback.start_channel" data-type="number"></select></label>
+    </div>
+    <label class="field"><span>Channel-change effect</span>
+      <select data-bind="playback.transition">
+        <option value="none">None (picture just switches)</option>
+        <option value="glitch">Glitch (brief digital corruption)</option>
+        <option value="static">Static (analog snow)</option>
+      </select></label>
+    <details class="adv"><summary>More</summary>
+      <div class="grid2" style="margin-top:10px">
+        <label class="field"><span>Keep old show playing while the next loads (seconds)</span>
+          <input type="number" min="0" max="5" step="0.1" data-bind="playback.bridge_seconds" data-type="number"></label>
+        <label class="field"><span>Channel banner stays on screen (seconds)</span>
+          <input type="number" min="0" max="30" step="0.5" data-bind="playback.channel_bug_seconds" data-type="number"></label>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ---------- Sound ---------- -->
+<section class="card" id="sec-sound">
+  <h2>Sound</h2>
+  <div class="stack">
+    <label class="field"><span>Sound comes out of</span>
+      <select data-bind="sound.output" id="soundout">
+        <option value="auto">Automatic</option>
+        <option value="hdmi0">HDMI port 1 (the one next to the power plug)</option>
+        <option value="hdmi1">HDMI port 2</option>
+        <option value="custom">Something else (advanced)</option>
+      </select></label>
+    <label class="field" id="customdev" hidden><span>Audio device name (from <code>nostalgiabox --list-audio</code>)</span>
+      <input type="text" data-bind="sound.custom_device" maxlength="120" autocapitalize="none" spellcheck="false"></label>
+    <div class="grid2">
+      <label class="field"><span>Starting volume: <output data-out="sound.initial_volume"></output></span>
+        <input type="range" min="0" max="100" data-bind="sound.initial_volume" data-type="number"></label>
+      <label class="field"><span>Volume step per button press</span>
+        <input type="number" min="1" max="25" data-bind="sound.volume_step" data-type="number" inputmode="numeric"></label>
+    </div>
+  </div>
+</section>
+
+<!-- ---------- Picture ---------- -->
+<section class="card" id="sec-picture">
+  <h2>Picture</h2>
+  <p class="hint">The old-TV look.</p>
+  <div class="stack">
+    <label class="check"><input type="checkbox" data-bind="picture.crt"> Curved "CRT tube" picture</label>
+    <label class="field"><span>Curve strength: <output data-out="picture.curvature"></output></span>
+      <input type="range" min="0" max="0.3" step="0.01" data-bind="picture.curvature" data-type="number"></label>
+    <label class="check"><input type="checkbox" data-bind="picture.scanlines"> Faint scanlines</label>
+    <label class="check"><input type="checkbox" data-bind="picture.force_4_3" data-path="playback.force_4_3"> Fit every show into a 4:3 frame</label>
+    <div class="row">
+      <label class="field"><span>On-screen text colour</span>
+        <input type="color" data-bind="picture.ui_color"></label>
+      <label class="check" style="margin-top:20px"><input type="checkbox" data-bind="picture.glow"> Soft glow</label>
+    </div>
+  </div>
+</section>
+
+<!-- ---------- Screen time ---------- -->
+<section class="card" id="sec-time">
+  <h2>Daily screen time</h2>
+  <p class="hint">After the limit, the TV shows "off the air" static until the next day. Unplugging the box doesn't reset it.</p>
+  <div class="stack">
+    <label class="check"><input type="checkbox" data-bind="screentime.enabled"> Limit how long the TV can play each day</label>
+    <div class="grid2">
+      <label class="field"><span>Hours per day</span>
+        <input type="number" min="0.25" max="24" step="0.25" data-bind="screentime.hours" data-type="number" inputmode="decimal"></label>
+      <label class="field"><span>New day starts at</span>
+        <select data-bind="screentime.reset_hour" data-type="number" id="resethour"></select></label>
+    </div>
+    <p class="hint" id="usage" style="margin:0"></p>
+  </div>
+</section>
+
+<!-- ---------- Security ---------- -->
+<section class="card" id="sec-security">
+  <h2>Password</h2>
+  <p class="hint">This is the password for this page (username <b id="uname">admin</b>).</p>
+  <form class="stack" id="pwform" autocomplete="off">
+    <label class="field"><span>Current password</span><input type="password" id="pw0" autocomplete="current-password"></label>
+    <div class="grid2">
+      <label class="field"><span>New password (6+ characters)</span><input type="password" id="pw1" autocomplete="new-password"></label>
+      <label class="field"><span>Type it again</span><input type="password" id="pw2" autocomplete="new-password"></label>
+    </div>
+    <div class="row"><button class="btn" type="submit">Change password</button></div>
+    <p class="msg" id="pwmsg" role="status"></p>
+  </form>
+</section>
+
+<!-- ---------- This box ---------- -->
+<section class="card" id="sec-box">
+  <h2>This box</h2>
+  <div class="kv" id="boxinfo"></div>
+  <div class="stack">
+    <div class="row">
+      <label class="field grow"><span>Time zone (used by the daily limit)</span>
+        <select id="tz"></select></label>
+      <button class="btn" id="tzset" style="align-self:flex-end">Set time zone</button>
+    </div>
+    <p class="msg" id="boxmsg" role="status"></p>
+    <div class="row">
+      <button class="btn" id="restarttv">Restart the TV picture</button>
+      <button class="btn" id="reboot">Reboot</button>
+      <button class="btn danger" id="shutdown">Shut down</button>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="savebar"><div class="wrap">
+  <span id="savemsg"></span>
+  <button class="btn primary" id="save">Save &amp; apply</button>
+</div></div>
+</div>
+
+<!-- ======================= network folder browser ======================= -->
+<dialog id="browser">
+  <div class="dh"><h2 id="btitle">Choose a folder</h2><div class="crumbs" id="crumbs"></div></div>
+  <div class="db" id="blist"></div>
+  <div class="df">
+    <span class="grow" id="bcount"></span>
+    <button class="btn" id="bcancel" type="button">Cancel</button>
+    <button class="btn primary" id="buse" type="button">Use this folder</button>
+  </div>
+</dialog>
+
+<!-- ============================ save result ============================ -->
+<dialog id="resultdlg">
+  <div class="dh"><h2 id="rtitle">Saved</h2></div>
+  <div class="db" id="rbody"></div>
+  <div class="df"><span class="grow"></span><button class="btn primary" id="rok" type="button">OK</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const VIDEO = /\.(mp4|mkv|avi|m4v|mov|mpg|mpeg|wmv|webm|ts)$/i;
+
+let S = null;          // settings being edited
+let ST = null;         // status from the box
+let MAXCH = 30;
+let tab = 0;
+let counts = {};       // slot -> {count,state,message}
+let passwords = {};    // slot -> password typed this session
+let dirty = false;
+let zonesLoaded = false;
+
+/* ------------------------------------------------------------ helpers */
+function fmtBytes(n) {
+  if (!n || n < 1024) return (n || 0) + " B";
+  const u = ["KB", "MB", "GB", "TB"]; let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+  return (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+}
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+}
+async function api(path, opt = {}) {
+  const o = { method: opt.method || "GET", headers: {}, credentials: "same-origin" };
+  if (o.method !== "GET") o.headers["X-NB"] = "1";
+  if (opt.json !== undefined) { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(opt.json); }
+  const r = await fetch(path, o);
+  let data = {}; try { data = await r.json(); } catch (_) {}
+  if (r.status === 401 && path !== "/api/login") { showLogin(); throw new Error("login"); }
+  if (!r.ok) { const e = new Error(data.error || "Something went wrong."); e.status = r.status; throw e; }
+  return data;
+}
+function getPath(obj, path) { return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj); }
+function setPath(obj, path, val) {
+  const ks = path.split("."); const last = ks.pop();
+  ks.reduce((o, k) => o[k], obj)[last] = val;
+}
+function markDirty() {
+  dirty = true;
+  const m = $("#savemsg"); m.className = "dirty"; m.textContent = "You have changes that aren't saved yet.";
+}
+function channelNumber(i) { return S.first_channel + i; }
+function chName(i) { return S.channels[i].name || `Channel ${channelNumber(i)}`; }
+
+/* -------------------------------------------------------------- login */
+function showLogin() { $("#app").hidden = true; $("#login").hidden = false; $("#lp").focus(); }
+$("#loginform").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("#lmsg").textContent = ""; $("#lbtn").disabled = true;
+  try {
+    await api("/api/login", { method: "POST", json: { username: $("#lu").value, password: $("#lp").value } });
+    $("#lp").value = "";
+    await boot();
+  } catch (err) { $("#lmsg").textContent = err.message; }
+  $("#lbtn").disabled = false;
+});
+$("#logout").addEventListener("click", async () => { try { await api("/api/logout", { method: "POST", json: {} }); } catch (_) {} showLogin(); });
+
+/* --------------------------------------------------------------- boot */
+async function boot() {
+  let d;
+  try { d = await api("/api/state"); } catch (e) { if (e.message === "login") return; throw e; }
+  S = d.settings; ST = d.status; MAXCH = d.max_channels;
+  $("#login").hidden = true; $("#app").hidden = false;
+  dirty = false; passwords = {};
+  buildStatic();
+  renderAll();
+  refreshCounts();
+  loadZones();
+  $("#savemsg").className = ""; $("#savemsg").textContent = S.configured ? "" : "Set up your channels, then tap Save & apply.";
+}
+
+function buildStatic() {
+  const sel = $("#chcount"); sel.innerHTML = "";
+  for (let n = 1; n <= MAXCH; n++) sel.add(new Option(n === 1 ? "1 channel" : `${n} channels`, n));
+  const rh = $("#resethour"); rh.innerHTML = "";
+  for (let h = 0; h < 24; h++) rh.add(new Option(h === 0 ? "midnight" : `${(h % 12) || 12}:00 ${h < 12 ? "AM" : "PM"}`, h));
+}
+
+function renderAll() {
+  $("#chcount").value = S.channel_count;
+  $("#first").value = S.first_channel;
+  if (tab >= S.channel_count) tab = S.channel_count - 1;
+  renderTabs(); renderPanel(); renderStartChannel(); bindStatic(); renderStatus();
+}
+
+function renderStatus() {
+  const chip = $("#tvchip");
+  const m = ST.tv_mode;
+  chip.className = "chip " + (m === "tv" ? "on" : m ? "warn" : "");
+  chip.textContent = "TV: " + ({ tv: "on air", ready: "setup screen", offair: "off the air" }[m] || "starting…");
+  $("#pwbanner").hidden = !ST.default_password;
+  $("#uname").textContent = ST.username;
+  const u = $("#usage");
+  if (ST.budget_seconds && ST.used_seconds != null) u.textContent = `Watched so far today: ${fmtDur(ST.used_seconds)} of ${fmtDur(ST.budget_seconds)}.`;
+  else u.textContent = "";
+  const free = ST.total_bytes ? `${fmtBytes(ST.free_bytes)} free of ${fmtBytes(ST.total_bytes)}` : "unknown";
+  $("#boxinfo").innerHTML =
+    `<b>Address</b><span>http://${esc(ST.ip || "?")}:${ST.port}</span>` +
+    `<b>Name</b><span>${esc(ST.hostname)}.local</span>` +
+    `<b>Storage</b><span>${esc(free)}</span>` +
+    `<b>Setup page</b><span>version ${esc(ST.version)}</span>`;
+}
+
+/* ------------------------------------------------- static field binding */
+function bindStatic() {
+  $$("[data-bind]").forEach(el => {
+    const path = el.dataset.path || el.dataset.bind;
+    const v = getPath(S, path);
+    if (el.type === "checkbox") el.checked = !!v; else if (v !== undefined) el.value = v;
+    syncOut(el);
+    if (!el._bound) {
+      el._bound = true;
+      el.addEventListener("input", () => {
+        let val = el.type === "checkbox" ? el.checked : el.value;
+        if (el.dataset.type === "number") val = el.value === "" ? 0 : Number(el.value);
+        setPath(S, el.dataset.path || el.dataset.bind, val);
+        syncOut(el); markDirty();
+        if (el.id === "soundout") $("#customdev").hidden = el.value !== "custom";
+      });
+    }
+  });
+  $("#customdev").hidden = S.sound.output !== "custom";
+}
+function syncOut(el) {
+  const o = $(`output[data-out="${el.dataset.bind}"]`);
+  if (o) o.textContent = el.value;
+}
+function renderStartChannel() {
+  const sel = $("#startch"); sel.innerHTML = "";
+  sel.add(new Option("The first channel", 0));
+  for (let i = 0; i < S.channel_count; i++) sel.add(new Option(`${channelNumber(i)} · ${chName(i)}`, channelNumber(i)));
+  sel.value = S.playback.start_channel || 0;
+  if (sel.value !== String(S.playback.start_channel || 0)) { S.playback.start_channel = 0; sel.value = 0; }
+}
+
+$("#chcount").addEventListener("change", e => { S.channel_count = Number(e.target.value); markDirty(); renderAll(); refreshCounts(); });
+$("#first").addEventListener("input", e => {
+  const n = Math.max(1, Math.min(99, Number(e.target.value) || 1));
+  S.first_channel = n; markDirty(); renderTabs(); renderStartChannel();
+  const c = $(".chnum"); if (c) c.textContent = "CH " + channelNumber(tab);
+});
+
+/* --------------------------------------------------------------- tabs */
+function renderTabs() {
+  const t = $("#tabs"); t.innerHTML = "";
+  for (let i = 0; i < S.channel_count; i++) {
+    const c = counts[i];
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "tab"; b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", i === tab ? "true" : "false");
+    b.innerHTML = `<span class="n">${channelNumber(i)}</span>${esc(S.channels[i].name)}` +
+      (c && c.state === "ok" ? `<span class="b">${c.count}${c.more ? "+" : ""}</span>` : "");
+    b.addEventListener("click", () => { tab = i; renderTabs(); renderPanel(); });
+    t.appendChild(b);
+  }
+}
+
+/* -------------------------------------------------------- channel panel */
+function renderPanel() {
+  const i = tab, ch = S.channels[i];
+  const p = $("#panel");
+  p.setAttribute("aria-label", `Channel ${channelNumber(i)}`);
+  p.innerHTML = `
+    <div class="ch-head">
+      <label class="field grow"><span>Channel name</span>
+        <input type="text" data-f="name" maxlength="40" placeholder="e.g. Arthur" value="${esc(ch.name)}"></label>
+      <div class="chnum" title="Channel number on the remote">CH ${channelNumber(i)}</div>
+    </div>
+    <div class="lbl" style="margin-bottom:6px">Where are the episodes?</div>
+    <div class="seg" role="radiogroup" aria-label="Where are the episodes">
+      <label><input type="radio" name="src" value="local" ${ch.source === "local" ? "checked" : ""}><span>Upload files</span></label>
+      <label><input type="radio" name="src" value="network" ${ch.source === "network" ? "checked" : ""}><span>Network folder</span></label>
+    </div>
+    ${ch.source === "local" ? localHTML(i) : networkHTML(i)}
+    <details class="adv"><summary>Skip some episodes (optional)</summary>
+      <div class="grid2" style="margin-top:10px">
+        <label class="field"><span>Skip seasons (like 6-25)</span>
+          <input type="text" data-f="exclude_seasons" value="${esc(ch.exclude_seasons)}" placeholder="6-25" autocapitalize="none"></label>
+        <label class="field"><span>Skip names containing (like *special*)</span>
+          <input type="text" data-f="exclude" value="${esc(ch.exclude)}" placeholder="*special*" autocapitalize="none"></label>
+      </div>
+    </details>
+    <p class="status" id="chstatus"></p>`;
+  renderChannelStatus();
+  if (ch.source === "local") { loadFiles(i); renderQueue(i); }
+}
+
+function renderChannelStatus() {
+  const el = $("#chstatus"); if (!el) return;
+  const c = counts[tab];
+  if (!c) { el.textContent = ""; el.className = "status"; return; }
+  if (c.state === "ok") { el.className = "status ok"; el.textContent = `✓ ${c.count}${c.more ? "+" : ""} episode${c.count === 1 ? "" : "s"} on the air (as last saved).`; }
+  else { el.className = "status bad"; el.textContent = `⚠ ${c.message}`; }
+}
+
+$("#panel").addEventListener("input", e => {
+  const el = e.target, i = tab, ch = S.channels[i];
+  if (el.dataset.f) { ch[el.dataset.f] = el.value; markDirty(); if (el.dataset.f === "name") { renderTabs(); renderStartChannel(); } }
+  else if (el.dataset.n) { ch.net[el.dataset.n] = el.value; markDirty(); }
+  else if (el.dataset.pw !== undefined) { passwords[i] = el.value; markDirty(); }
+});
+$("#panel").addEventListener("change", e => {
+  const el = e.target, i = tab, ch = S.channels[i];
+  if (el.name === "src") { ch.source = el.value; markDirty(); renderPanel(); }
+  else if (el.name === "ntype") { ch.net.type = el.value; markDirty(); renderPanel(); }
+  else if (el.id === "pickfiles" || el.id === "pickfolder") {
+    const isFolder = el.id === "pickfolder";
+    addFiles([...el.files].map(f => ({ file: f, rel: isFolder ? f.webkitRelativePath.split("/").slice(1).join("/") || f.name : f.name })));
+    el.value = "";
+  }
+});
+$("#panel").addEventListener("click", e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const act = b.dataset.act;
+  if (act === "browse") openBrowser(tab);
+  else if (act === "del") deleteFile(tab, b.dataset.path);
+  else if (act === "cancelup") cancelUploads();
+});
+
+/* ------ local (upload) */
+function localHTML(i) {
+  const free = ST.total_bytes ? `${fmtBytes(ST.free_bytes)} free on the box` : "";
+  return `
+    <div class="drop" id="drop">
+      <p>Drag video files or a whole folder here, or:</p>
+      <div class="row" style="justify-content:center">
+        <label class="btn small" style="display:inline-flex;align-items:center">Choose files<input type="file" id="pickfiles" multiple accept="video/*,.mkv,.avi,.m4v,.mov,.mpg,.mpeg,.wmv,.webm,.ts" hidden></label>
+        <label class="btn small" style="display:inline-flex;align-items:center">Choose a folder<input type="file" id="pickfolder" webkitdirectory hidden></label>
+      </div>
+      <p style="margin:10px 0 0;font-size:.82rem">${esc(free)}${free ? " · " : ""}Big files take a while over Wi-Fi: keep this page open.</p>
+    </div>
+    <div class="queue" id="queue"></div>
+    <div class="files" id="files"></div>`;
+}
+
+let uploadQ = [];      // {id, slot, file, rel, state, loaded}
+let uploading = false, currentXhr = null, uid = 0;
+
+async function loadFiles(i) {
+  const box = $("#files"); if (!box) return;
+  try {
+    const d = await api(`/api/files?channel=${i + 1}`);
+    if (tab !== i || !$("#files")) return;
+    if (!d.files.length) { $("#files").innerHTML = `<p class="hint" style="margin:12px 0 0">No videos on the box for this channel yet.</p>`; return; }
+    $("#files").innerHTML = `<h3>${d.files.length}${d.truncated ? "+" : ""} video${d.files.length === 1 ? "" : "s"} · ${fmtBytes(d.total)}</h3>` +
+      d.files.map(f => `<div class="fi"><span class="p" title="${esc(f.path)}">${esc(f.path)}</span><span class="s">${fmtBytes(f.size)}</span>` +
+        `<button class="x" type="button" data-act="del" data-path="${esc(f.path)}" aria-label="Delete ${esc(f.path)}">✕</button></div>`).join("");
+  } catch (e) { if (e.message !== "login" && $("#files")) $("#files").innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+async function deleteFile(i, path) {
+  if (!confirm(`Delete "${path}" from the box?`)) return;
+  try { await api("/api/files/delete", { method: "POST", json: { channel: i + 1, path } }); loadFiles(i); refreshCounts(); }
+  catch (e) { alert(e.message); }
+}
+
+let skipNote = "";
+function addFiles(items) {
+  const skipped = items.filter(x => !VIDEO.test(x.rel)).length;
+  const ok = items.filter(x => VIDEO.test(x.rel));
+  skipNote = skipped ? `Skipped ${skipped} file${skipped === 1 ? "" : "s"} that aren't videos.` : "";
+  ok.forEach(x => uploadQ.push({ id: ++uid, slot: tab, file: x.file, rel: x.rel, state: "wait", loaded: 0 }));
+  renderQueue(tab);
+  pump();
+}
+function renderQueue(i) {
+  const q = $("#queue"); if (!q) return;
+  const items = uploadQ.filter(u => u.slot === i);
+  const note = skipNote ? `<p class="hint" style="margin:0 0 6px">${esc(skipNote)}</p>` : "";
+  if (!items.length) { q.innerHTML = note; return; }
+  const active = items.some(u => u.state === "wait" || u.state === "up");
+  q.innerHTML = note + (active ? `<div class="row" style="justify-content:space-between"><b>Uploading…</b><button class="btn small danger" data-act="cancelup" type="button">Cancel</button></div>` : "") +
+    items.map(u => `<div class="qi ${u.state}" id="q${u.id}"><div class="nm"><b>${esc(u.rel)}</b><span id="qt${u.id}">${qText(u)}</span></div>` +
+      `<div class="bar"><i id="qb${u.id}" style="width:${u.state === "done" ? 100 : Math.round(100 * u.loaded / Math.max(1, u.file.size))}%"></i></div></div>`).join("");
+}
+function qText(u) {
+  if (u.state === "wait") return "waiting";
+  if (u.state === "up") return Math.round(100 * u.loaded / Math.max(1, u.file.size)) + "%";
+  if (u.state === "done") return "✓ " + fmtBytes(u.file.size);
+  return u.error || "failed";
+}
+function pump() {
+  if (uploading) return;
+  const u = uploadQ.find(x => x.state === "wait");
+  if (!u) { uploading = false; loadFiles(tab); refreshCounts(); return; }
+  uploading = true; u.state = "up";
+  const xhr = new XMLHttpRequest(); currentXhr = xhr;
+  xhr.open("PUT", `/api/upload?channel=${u.slot + 1}&path=${encodeURIComponent(u.rel)}`);
+  xhr.setRequestHeader("X-NB", "1");
+  xhr.upload.onprogress = ev => {
+    u.loaded = ev.loaded;
+    const b = $(`#qb${u.id}`), t = $(`#qt${u.id}`);
+    if (b) b.style.width = Math.round(100 * ev.loaded / Math.max(1, u.file.size)) + "%";
+    if (t) t.textContent = qText(u);
+  };
+  const finish = () => { uploading = false; currentXhr = null; renderQueue(tab); pump(); };
+  xhr.onload = () => {
+    if (xhr.status === 200) u.state = "done";
+    else { u.state = "err"; try { u.error = JSON.parse(xhr.responseText).error; } catch (_) { u.error = "failed"; } if (xhr.status === 401) showLogin(); }
+    finish();
+  };
+  xhr.onerror = () => { u.state = "err"; u.error = "connection lost"; finish(); };
+  xhr.onabort = () => { u.state = "err"; u.error = "cancelled"; finish(); };
+  xhr.send(u.file);
+}
+function cancelUploads() {
+  uploadQ.forEach(u => { if (u.state === "wait") { u.state = "err"; u.error = "cancelled"; } });
+  if (currentXhr) currentXhr.abort(); else renderQueue(tab);
+}
+
+/* drag & drop (files and folders) */
+function readEntry(entry, path = "") {
+  return new Promise(resolve => {
+    if (entry.isFile) entry.file(f => resolve([{ file: f, rel: path + f.name }]), () => resolve([]));
+    else if (entry.isDirectory) {
+      const reader = entry.createReader(); const all = [];
+      (function next() {
+        reader.readEntries(async ents => {
+          if (!ents.length) { const nested = await Promise.all(all.map(en => readEntry(en, path + entry.name + "/"))); resolve(nested.flat()); return; }
+          all.push(...ents); next();
+        }, () => resolve([]));
+      })();
+    } else resolve([]);
+  });
+}
+document.addEventListener("dragover", e => { const d = $("#drop"); if (d && d.contains(e.target)) { e.preventDefault(); d.classList.add("over"); } });
+document.addEventListener("dragleave", e => { const d = $("#drop"); if (d) d.classList.remove("over"); });
+document.addEventListener("drop", async e => {
+  const d = $("#drop"); if (!d || !d.contains(e.target)) return;
+  e.preventDefault(); d.classList.remove("over");
+  const entries = [...(e.dataTransfer.items || [])].map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  let items;
+  if (entries.length) {
+    items = (await Promise.all(entries.map(en => readEntry(en)))).flat();
+    // a dropped folder arrives as "Show/Season 1/ep.mp4": drop the top folder name
+    items = items.map((x, k) => entries.some(en => en.isDirectory) && x.rel.includes("/") ? { file: x.file, rel: x.rel.split("/").slice(1).join("/") } : x);
+  } else items = [...e.dataTransfer.files].map(f => ({ file: f, rel: f.name }));
+  addFiles(items);
+});
+window.addEventListener("beforeunload", e => { if (dirty || uploading) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ------ network */
+function networkHTML(i) {
+  const n = S.channels[i].net, smb = n.type === "smb";
+  return `
+    <div class="stack" style="margin-top:14px">
+      <div class="seg" role="radiogroup" aria-label="Kind of share">
+        <label><input type="radio" name="ntype" value="smb" ${smb ? "checked" : ""}><span>SMB (Windows/Unraid)</span></label>
+        <label><input type="radio" name="ntype" value="nfs" ${!smb ? "checked" : ""}><span>NFS</span></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Server (name or IP address)</span>
+          <input type="text" data-n="host" value="${esc(n.host)}" placeholder="192.168.1.20 or tower.local" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+        <label class="field"><span>${smb ? "Share name" : "NFS export path"}</span>
+          <input type="text" data-n="share" value="${esc(n.share)}" placeholder="${smb ? "media" : "/mnt/user/media"}" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+      </div>
+      ${smb ? `<div class="grid2">
+        <label class="field"><span>Username</span>
+          <input type="text" data-n="username" value="${esc(n.username)}" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off"></label>
+        <label class="field"><span>Password</span>
+          <input type="password" data-pw value="${esc(passwords[i] ?? "")}" placeholder="${n.has_password ? "saved: type to change" : ""}" autocomplete="new-password"></label>
+      </div>
+      <p class="hint" style="margin:0">Leave username and password empty for a public (guest) share.</p>` : ""}
+      <div class="row">
+        <button class="btn" type="button" data-act="browse">Connect &amp; choose folder…</button>
+      </div>
+      <p class="msg" id="netmsg" role="status"></p>
+      <label class="field"><span>Folder inside the share (optional)</span>
+        <input type="text" data-n="subfolder" value="${esc(n.subfolder)}" placeholder="Kids TV/Arthur" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+      <p class="hint" style="margin:0">Episodes in sub-folders (like seasons) are found automatically. Nothing on the server is ever changed: the box only reads.</p>
+    </div>`;
+}
+
+let browseSlot = 0, browsePath = "", browseData = null;
+async function openBrowser(i) {
+  const ch = S.channels[i], n = ch.net, msg = $("#netmsg");
+  msg.className = "msg"; msg.textContent = "Connecting…";
+  const body = { net: n, password: passwords[i] };
+  if (passwords[i] === undefined && n.has_password) body.saved_channel = i + 1;
+  try {
+    await api("/api/net/connect", { method: "POST", json: body });
+  } catch (e) { if (e.message !== "login") { msg.className = "msg err"; msg.textContent = e.message; } return; }
+  msg.textContent = "";
+  browseSlot = i;
+  $("#btitle").textContent = `Channel ${channelNumber(i)}: pick the folder`;
+  $("#browser").showModal();
+  await browseTo(n.subfolder || "", true);
+}
+async function browseTo(path, fallback) {
+  const list = $("#blist");
+  list.innerHTML = `<p class="hint">Loading…</p>`;
+  try {
+    browseData = await api(`/api/net/ls?path=${encodeURIComponent(path)}`);
+  } catch (e) {
+    if (fallback && path) return browseTo("", false);
+    list.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; return;
+  }
+  browsePath = browseData.path;
+  const parts = browsePath ? browsePath.split("/") : [];
+  $("#crumbs").innerHTML = `<button type="button" data-p="">${esc(S.channels[browseSlot].net.share || "share")}</button>` +
+    parts.map((p, k) => `<span>/</span><button type="button" data-p="${esc(parts.slice(0, k + 1).join("/"))}">${esc(p)}</button>`).join("");
+  list.innerHTML = browseData.dirs.length
+    ? browseData.dirs.map(d => `<button class="dir" type="button" data-d="${esc(d)}">${esc(d)}</button>`).join("")
+    : `<p class="hint">No more folders in here.</p>`;
+  $("#bcount").textContent = `${browseData.episodes}${browseData.episodes_more ? "+" : ""} video${browseData.episodes === 1 ? "" : "s"} in this folder (including folders inside it)`;
+}
+$("#crumbs").addEventListener("click", e => { const b = e.target.closest("[data-p]"); if (b) browseTo(b.dataset.p); });
+$("#blist").addEventListener("click", e => { const b = e.target.closest("[data-d]"); if (b) browseTo(browsePath ? browsePath + "/" + b.dataset.d : b.dataset.d); });
+$("#buse").addEventListener("click", () => {
+  S.channels[browseSlot].net.subfolder = browsePath;
+  markDirty(); $("#browser").close(); renderPanel();
+});
+$("#bcancel").addEventListener("click", () => $("#browser").close());
+$("#browser").addEventListener("close", () => { api("/api/net/disconnect", { method: "POST", json: {} }).catch(() => {}); });
+
+/* -------------------------------------------------------------- counts */
+async function refreshCounts() {
+  try {
+    const d = await api("/api/counts");
+    counts = {}; d.counts.forEach(c => { counts[c.index] = c; });
+    renderTabs(); renderChannelStatus();
+  } catch (_) {}
+}
+
+/* ---------------------------------------------------------------- save */
+$("#save").addEventListener("click", async () => {
+  const btn = $("#save"), msg = $("#savemsg");
+  if (uploading && !confirm("An upload is still running. Save anyway?")) return;
+  btn.disabled = true; msg.className = ""; msg.textContent = "Applying… network folders can take a little while.";
+  try {
+    const r = await api("/api/settings", { method: "POST", json: { settings: S, passwords } });
+    S = r.settings; passwords = {}; dirty = false;
+    msg.className = ""; msg.textContent = "Saved.";
+    showResult(r);
+    renderAll(); await refreshCounts();
+    try { ST = (await api("/api/state")).status; renderStatus(); } catch (_) {}
+  } catch (e) {
+    if (e.message !== "login") { msg.className = "err"; msg.textContent = e.message; }
+  }
+  btn.disabled = false;
+});
+function showResult(r) {
+  const air = r.on_air || [];
+  let h = air.length
+    ? `<p>On the air now: ${air.map(n => `<b>${n}</b>`).join(", ")}. The TV restarts in a moment.</p>`
+    : `<p><b>No shows are on the air yet.</b> The TV keeps showing the setup screen until a channel has at least one video.</p>`;
+  if (r.warnings && r.warnings.length) h += `<p class="hint" style="color:var(--warn)">Needs attention:</p><ul class="warns">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>`;
+  if (r.check) h += `<details class="adv"><summary>${r.check.ok ? "NostalgiaBox's own check passed" : "NostalgiaBox's own check reported a problem"}</summary><pre class="log">${esc(r.check.output || "(no output)")}</pre></details>`;
+  $("#rtitle").textContent = (r.warnings && r.warnings.length) ? "Saved, with a few things to fix" : "Saved";
+  $("#rbody").innerHTML = h;
+  $("#resultdlg").showModal();
+}
+$("#rok").addEventListener("click", () => $("#resultdlg").close());
+
+/* ------------------------------------------------------------ password */
+$("#pwlink").addEventListener("click", () => setTimeout(() => $("#pw0").focus(), 400));
+$("#pwform").addEventListener("submit", async e => {
+  e.preventDefault();
+  const m = $("#pwmsg"); m.className = "msg";
+  if ($("#pw1").value !== $("#pw2").value) { m.className = "msg err"; m.textContent = "The two new passwords don't match."; return; }
+  try {
+    await api("/api/password", { method: "POST", json: { current: $("#pw0").value, new: $("#pw1").value } });
+    m.className = "msg ok"; m.textContent = "Password changed.";
+    $("#pw0").value = $("#pw1").value = $("#pw2").value = "";
+    ST.default_password = false; renderStatus();
+  } catch (err) { if (err.message !== "login") { m.className = "msg err"; m.textContent = err.message; } }
+});
+
+/* ---------------------------------------------------------------- box */
+async function loadZones() {
+  if (zonesLoaded) return;
+  try {
+    const d = await api("/api/timezones");
+    const sel = $("#tz"); sel.innerHTML = "";
+    if (!d.zones.length) { sel.add(new Option("(not available)", "")); sel.disabled = true; $("#tzset").disabled = true; }
+    d.zones.forEach(z => sel.add(new Option(z.replace(/_/g, " "), z)));
+    if (d.current) sel.value = d.current;
+    zonesLoaded = true;
+  } catch (_) {}
+}
+async function sysAction(action, value, okText) {
+  const m = $("#boxmsg"); m.className = "msg"; m.textContent = "Working…";
+  try { await api("/api/system", { method: "POST", json: { action, value } }); m.className = "msg ok"; m.textContent = okText; }
+  catch (e) { if (e.message !== "login") { m.className = "msg err"; m.textContent = e.message; } }
+}
+$("#tzset").addEventListener("click", () => sysAction("timezone", $("#tz").value, "Time zone changed."));
+$("#restarttv").addEventListener("click", () => sysAction("restart-tv", null, "Restarting the picture…"));
+$("#reboot").addEventListener("click", () => { if (confirm("Reboot the box now?")) sysAction("reboot", null, "Rebooting. This page will work again in about a minute."); });
+$("#shutdown").addEventListener("click", () => { if (confirm("Shut the box down? You'll need to unplug and replug it to turn it back on.")) sysAction("shutdown", null, "Shutting down. It's safe to unplug when the green light stops blinking."); });
+
+/* keep the little status chip fresh */
+setInterval(async () => {
+  if ($("#app").hidden) return;
+  try { ST = (await api("/api/state")).status; renderStatus(); } catch (_) {}
+}, 15000);
+
+boot();
+</script>
+</body>
+</html>

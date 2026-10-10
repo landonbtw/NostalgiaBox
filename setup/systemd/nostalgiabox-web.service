@@ -1,0 +1,15 @@
+[Unit]
+Description=NostalgiaBox setup web page
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/nostalgiabox-setup/server.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
