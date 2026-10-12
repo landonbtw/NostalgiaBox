@@ -38,6 +38,7 @@ first_channel_number: 2      # number of the first discovered channel
 #   - number: 3
 #     name: "Arthur"
 #     path: /media/nostalgiabox/Arthur
+#     # order: in_order          # this channel only; or put a .inorder file in the folder
 #     # Leave out episodes you don't want on this channel:
 #     exclude_seasons: ["6-25"]    # drop seasons 6 through 25 (S06E01, "Season 6")
 #     exclude: ["*special*"]       # drop any file whose path matches
@@ -52,6 +53,23 @@ first_channel_number: 2      # number of the first discovered channel
 #               in partway through whatever "would" be airing. (Needs ffprobe.)
 # -----------------------------------------------------------------------------
 tune_in: random
+
+# How the episodes on a channel are chosen.
+#   shuffle   - every episode once, then a new shuffle. This is the default.
+#               Built for kids: variety, so the same episode is unlikely to
+#               come back for a while, and flipping away returns to something
+#               new. Like real TV.
+#   in_order  - filename order, then loop back to the first. The place is
+#               remembered across channel changes and reboots.
+# shuffle: false is the same as order: in_order. If both are set, order wins.
+# One show only, no channel list: an empty file named .inorder in that folder.
+#   touch "/media/nostalgiabox/Dragon Tales/.inorder"
+# Name files 101, 102, 103 or S01E01 or 1x02. Ep 2 sorts before Ep 10.
+# Season 1/ comes before Season 2/.
+# With in_order, tune_in random and resume both continue the saved place, and
+# broadcast is that series as a real-time schedule. start_offset applies to
+# shuffle only.
+order: shuffle
 
 start_channel: 2          # which channel the box powers on to
 
@@ -102,8 +120,9 @@ crt:
 initial_volume: 100       # 0-100
 volume_step: 5            # Pi mode: how much each volume press changes it
 # Who the Flirc volume keys control.
-#   auto  - the TV over HDMI-CEC when cec-client is installed, otherwise the Pi
-#   tv    - always try the TV; falls back to the Pi if CEC is not available
+#   auto  - the TV over HDMI-CEC when cec-client finds a television. If there
+#           is no CEC TV, the Pi volume is used and nothing is shown on screen.
+#   tv    - ask for the TV; fall back to the Pi when no television answers
 #   pi    - the on-screen bar and mpv. The TV's volume stays where you set it.
 # Flirc has no CEC mode of its own. Program it as in the README (Right = volume
 # up, Left = volume down, m = mute). The TV must have CEC turned on (Anynet+,

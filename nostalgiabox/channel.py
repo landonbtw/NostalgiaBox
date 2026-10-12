@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AbstractSet, Dict, List, Optional, Sequence
 
+# Split a path into text and integer chunks so "Ep 2" sorts before "Ep 10".
+_NATURAL_SPLIT = re.compile(r"(\d+)")
+
 # Patterns for pulling a season number out of a file/folder path.
 _SEASON_PATTERNS = (
     re.compile(r"s(\d{1,2})[ ._-]?e\d{1,3}", re.IGNORECASE),   # S06E01, s6e1
@@ -29,6 +32,7 @@ _SEASON_PATTERNS = (
 )
 
 from .config import ChannelConfig, Config
+from .playback_state import ChannelBookmark, PlaybackState, default_state_path
 from .playlist import ShuffleBag
 from .probe import DEFAULT_EPISODE_SECONDS, probe_duration
 
@@ -52,6 +56,33 @@ def detect_season(text: str) -> Optional[int]:
     return None
 
 
+def natural_sort_key(text: str) -> tuple:
+    """Sort key that compares numbers by value, not as letters.
+
+    ``Ep 2`` comes before ``Ep 10``. ``101``, ``102``, ``103``, ``S01E02``,
+    ``S01E10``, and ``1x02`` do the same. Season folders (``Season 1``,
+    ``Season 2``, ``Season 10``) sort in season order because the whole
+    relative path is compared, not just the filename.
+    """
+    parts: list[tuple] = []
+    for piece in _NATURAL_SPLIT.split(text.lower()):
+        if not piece:
+            continue
+        if piece.isdigit():
+            parts.append((0, int(piece)))
+        else:
+            parts.append((1, piece))
+    return tuple(parts)
+
+
+def episode_rel(root: Path, path: Path) -> str:
+    """Path of an episode relative to its show folder, using ``/`` separators."""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.name
+
+
 def scan_episodes(
     root: Path,
     extensions: Sequence[str],
@@ -62,9 +93,9 @@ def scan_episodes(
 ) -> List[Path]:
     """Return a sorted list of episode files under ``root``.
 
-    Sorting is natural-ish (case-insensitive by full path) so that, in the rare
-    cases we present episodes in order, they are at least stable. Hidden files
-    and typical sidecar files are ignored.
+    Sorting is natural (``Ep 2`` before ``Ep 10``, ``Season 1`` before
+    ``Season 2``) so in-order playback follows the series. Hidden files and
+    typical sidecar files are ignored.
 
     ``exclude`` is a list of case-insensitive glob patterns; any episode whose
     relative path or filename matches one is dropped. ``exclude_seasons`` drops
@@ -84,7 +115,7 @@ def scan_episodes(
         and not p.name.startswith(".")
         and not _is_excluded(p, root, patterns, exclude_seasons)
     ]
-    episodes.sort(key=lambda p: str(p).lower())
+    episodes.sort(key=lambda p: natural_sort_key(episode_rel(root, p)))
     return episodes
 
 
@@ -112,12 +143,13 @@ def _is_excluded(
 
 
 class BroadcastSchedule:
-    """A never-ending, always-running shuffled running order for a channel.
+    """A never-ending running order for a channel.
 
     Given episode durations and a fixed start epoch, it can report exactly what
     "would be airing" at any wall-clock moment - the illusion that the station
-    kept broadcasting while nobody was watching. The running order is a single
-    shuffle that loops forever.
+    kept broadcasting while nobody was watching. Shuffle mode uses one shuffled
+    order that loops forever. In-order mode uses the episode list as given
+    (natural filename order) and loops the same way.
     """
 
     def __init__(
@@ -127,11 +159,13 @@ class BroadcastSchedule:
         *,
         epoch: float,
         rng: random.Random,
+        in_order: bool = False,
     ) -> None:
         if len(episodes) != len(durations):
             raise ValueError("episodes and durations must be the same length")
         order = list(range(len(episodes)))
-        rng.shuffle(order)
+        if not in_order:
+            rng.shuffle(order)
         self._episodes = [episodes[i] for i in order]
         self._durations = [max(1.0, float(durations[i])) for i in order]
         self._epoch = epoch
@@ -160,6 +194,7 @@ class Channel:
         start_offset_min: float = 0.0,
         start_offset_max: Optional[float] = None,
         rng: Optional[random.Random] = None,
+        bookmark: Optional[ChannelBookmark] = None,
     ) -> None:
         self.config = config
         self.episodes: List[Path] = list(episodes)
@@ -174,14 +209,27 @@ class Channel:
             else max(self.start_offset_min, start_offset_max)
         )
         self._rng = rng or random.Random()
+        self._in_order = config.order == "in_order"
+        # The shuffle bag is only the shuffle. In-order playback walks
+        # ``episodes`` from ``_cursor`` and does not draw from the bag.
         self._bag: Optional[ShuffleBag[Path]] = (
-            ShuffleBag(self.episodes, self._rng) if self.episodes else None
+            ShuffleBag(self.episodes, self._rng)
+            if self.episodes and not self._in_order
+            else None
         )
-        # Resume state (used by the "resume" tune-in mode).
+        # Where this channel left off. Shuffle+resume keeps it in memory.
+        # In-order restores it from the bookmark file.
+        self._cursor = 0
         self._resume_path: Optional[Path] = None
         self._resume_position: float = 0.0
+        self._saved_epoch: Optional[float] = None
+        # Set once a broadcast schedule exists, so it can be written out.
+        self.broadcast_epoch: Optional[float] = None
         # Broadcast schedule (built lazily on first use in "broadcast" mode).
         self._broadcast: Optional[BroadcastSchedule] = None
+        if bookmark is not None and self._in_order:
+            self._saved_epoch = bookmark.epoch
+            self._restore(bookmark)
 
     # -- identity -----------------------------------------------------------
     @property
@@ -201,6 +249,11 @@ class Channel:
 
     # -- playback selection -------------------------------------------------
     def _next_shuffled(self) -> PlayRequest:
+        """Pick the next shuffle-bag episode.
+
+        This is the default next-episode choice: one draw from the bag, started
+        a few seconds in. In-order channels never call it.
+        """
         assert self._bag is not None
         if self.start_offset_max > self.start_offset_min:
             start = self._rng.uniform(self.start_offset_min, self.start_offset_max)
@@ -208,20 +261,55 @@ class Channel:
             start = self.start_offset_min
         return PlayRequest(path=self._bag.next(), start=start)
 
+    def _current_in_order(self) -> PlayRequest:
+        """The saved episode, from the saved spot. New episodes start at 0.
+
+        ``start_offset`` is a shuffle feeling (you tuned in late). A series
+        played in order starts at the beginning, or where the viewer paused.
+        """
+        path = self.episodes[self._cursor]
+        if self._resume_path == path:
+            start = self._resume_position
+        else:
+            self._resume_path = path
+            self._resume_position = 0.0
+            start = 0.0
+        return PlayRequest(path=path, start=start)
+
+    def _advance_in_order(self) -> PlayRequest:
+        """The next file in natural order, wrapping to the first at the end."""
+        self._cursor = (self._cursor + 1) % len(self.episodes)
+        self._resume_position = 0.0
+        self._resume_path = self.episodes[self._cursor]
+        return PlayRequest(path=self._resume_path, start=0.0)
+
     def tune_in(self, *, now: Optional[float] = None) -> Optional[PlayRequest]:
         """Decide what to play the instant a viewer switches to this channel."""
         if self.is_empty:
             return None
         now = time.time() if now is None else now
 
-        if self.tune_in_mode == "resume" and self._resume_path is not None:
-            return PlayRequest(path=self._resume_path, start=self._resume_position)
-
         if self.tune_in_mode == "broadcast":
-            schedule = self._ensure_broadcast(epoch=now)
+            epoch = now
+            if self._in_order and self._saved_epoch is not None:
+                epoch = self._saved_epoch
+            elif self._in_order:
+                # First time this series becomes a station: remember the epoch
+                # so a reboot continues the same schedule.
+                self._saved_epoch = now
+                epoch = now
+            schedule = self._ensure_broadcast(epoch=epoch)
             if schedule is not None:
                 return schedule.at(now)
-            # Fall through to random if the schedule could not be built.
+            # Fall through if the schedule could not be built.
+
+        if self._in_order:
+            # random and resume both continue the series. The difference
+            # between those tune-in modes only matters for shuffle.
+            return self._current_in_order()
+
+        if self.tune_in_mode == "resume" and self._resume_path is not None:
+            return PlayRequest(path=self._resume_path, start=self._resume_position)
 
         return self._next_shuffled()
 
@@ -232,12 +320,49 @@ class Channel:
         if self.tune_in_mode == "broadcast" and self._broadcast is not None:
             # Roll straight into whatever airs next in the running order.
             return self._broadcast.at(time.time())
+        if self._in_order:
+            return self._advance_in_order()
         return self._next_shuffled()
 
     def remember(self, path: Path, position: float) -> None:
-        """Record where the viewer left off (for the "resume" mode)."""
+        """Record where the viewer left off.
+
+        Shuffle uses this only for the in-memory resume tune-in mode. In-order
+        playback uses it across channel flips, and the app writes it to disk.
+        """
         self._resume_path = path
         self._resume_position = max(0.0, position)
+        if not self._in_order:
+            return
+        for index, episode in enumerate(self.episodes):
+            if episode == path:
+                self._cursor = index
+                return
+
+    def bookmark(self) -> ChannelBookmark:
+        """The place to write down for this channel."""
+        episode = ""
+        position = 0.0
+        if self.episodes and self.tune_in_mode != "broadcast":
+            path = self._resume_path or self.episodes[self._cursor]
+            episode = episode_rel(self.config.path, path)
+            if self._resume_path == path:
+                position = self._resume_position
+        return ChannelBookmark(
+            episode=episode,
+            position=position,
+            epoch=self.broadcast_epoch if self.broadcast_epoch is not None else self._saved_epoch,
+        )
+
+    def _restore(self, bookmark: ChannelBookmark) -> None:
+        if not bookmark.episode or not self.episodes:
+            return
+        for index, episode in enumerate(self.episodes):
+            if episode_rel(self.config.path, episode) == bookmark.episode:
+                self._cursor = index
+                self._resume_path = episode
+                self._resume_position = max(0.0, bookmark.position)
+                return
 
     # -- broadcast schedule -------------------------------------------------
     def _ensure_broadcast(self, *, epoch: float) -> Optional[BroadcastSchedule]:
@@ -251,8 +376,13 @@ class Channel:
             durations.append(dur if dur else DEFAULT_EPISODE_SECONDS)
         # Use a channel-stable epoch offset so different channels are out of
         # phase with each other, but keep it deterministic per run.
+        self.broadcast_epoch = epoch
         self._broadcast = BroadcastSchedule(
-            self.episodes, durations, epoch=epoch, rng=self._rng
+            self.episodes,
+            durations,
+            epoch=epoch,
+            rng=self._rng,
+            in_order=self._in_order,
         )
         return self._broadcast
 
@@ -267,6 +397,8 @@ class ChannelLineup:
         self._channels: List[Channel] = sorted(channels, key=lambda c: c.number)
         self._by_number: Dict[int, Channel] = {c.number: c for c in self._channels}
         self._index = 0
+        # Filled in by build_lineup so the app can save in-order bookmarks.
+        self.state: Optional[PlaybackState] = None
 
     def __len__(self) -> int:
         return len(self._channels)
@@ -311,8 +443,36 @@ class ChannelLineup:
         return self.current
 
 
+def preview_episodes(
+    root: Path,
+    episodes: Sequence[Path],
+    *,
+    order: str,
+    bookmark: Optional[ChannelBookmark] = None,
+    limit: int = 3,
+) -> List[Path]:
+    """The first episodes ``--check`` should list.
+
+    In-order channels start at the saved episode (then wrap). Shuffle channels
+    list the natural filename order; playback itself still shuffles.
+    """
+    if not episodes or limit <= 0:
+        return []
+    start = 0
+    if order == "in_order" and bookmark is not None and bookmark.episode:
+        for index, episode in enumerate(episodes):
+            if episode_rel(root, episode) == bookmark.episode:
+                start = index
+                break
+    count = min(limit, len(episodes))
+    if order == "in_order":
+        return [episodes[(start + offset) % len(episodes)] for offset in range(count)]
+    return list(episodes[:count])
+
+
 def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> ChannelLineup:
     """Scan every configured channel folder and build the full lineup."""
+    state = PlaybackState.load(config.state_file or default_state_path())
     base_rng = rng or random.Random(config.shuffle_seed)
     channels: List[Channel] = []
     for i, ch_cfg in enumerate(config.channels):
@@ -343,9 +503,12 @@ def build_lineup(config: Config, *, rng: Optional[random.Random] = None) -> Chan
                 start_offset_min=config.start_offset_min,
                 start_offset_max=config.start_offset_max,
                 rng=ch_rng,
+                bookmark=state.get(ch_cfg.path),
             )
         )
-    return ChannelLineup(channels)
+    lineup = ChannelLineup(channels)
+    lineup.state = state
+    return lineup
 
 
 __all__ = [
@@ -355,5 +518,8 @@ __all__ = [
     "BroadcastSchedule",
     "scan_episodes",
     "detect_season",
+    "natural_sort_key",
+    "episode_rel",
+    "preview_episodes",
     "build_lineup",
 ]

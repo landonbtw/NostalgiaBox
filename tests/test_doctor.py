@@ -37,6 +37,30 @@ def test_check_lists_discovered_episodes(tmp_path, capsys):
     assert str(shows) in out
 
 
+def test_check_shows_order_and_the_first_episodes(tmp_path, capsys):
+    shows = tmp_path / "shows"
+    dragon = shows / "Dragon Tales"
+    dragon.mkdir(parents=True)
+    for name in ("103.mp4", "101.mp4", "102.mp4", "104.mp4"):
+        (dragon / name).write_bytes(b"\x00")
+    (dragon / ".inorder").write_text("", encoding="utf-8")
+    make_show(shows, "Arthur", 3)
+    cfg = config_from_dict({
+        "media_root": str(shows),
+        "usb_media_root": str(tmp_path / "no-usb"),
+        "state_file": str(tmp_path / "unused-state.json"),
+    })
+    code = run_check(cfg, tmp_path / "config.yaml", **_ready())
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "in order" in out
+    assert "shuffle" in out
+    play = next(line for line in out.splitlines() if "Plays next:" in line)
+    assert play.index("101.mp4") < play.index("102.mp4") < play.index("103.mp4")
+    assert "..." in play
+    assert "Playback shuffles these." in out
+
+
 def test_check_explains_an_empty_library(tmp_path, capsys):
     shows = tmp_path / "shows"
     shows.mkdir()

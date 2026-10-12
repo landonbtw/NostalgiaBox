@@ -118,6 +118,7 @@ def test_ui_and_crt_defaults(tmp_path):
     cfg = config_from_dict({"channels": [{"path": str(tmp_path / "a")}]})
     assert cfg.initial_volume == 100
     assert cfg.volume_control == "auto"
+    assert cfg.order == "shuffle"
     assert cfg.ui.font == "VT323"
     assert cfg.ui.color == "#4DFF5A"
     assert cfg.crt.enabled is True

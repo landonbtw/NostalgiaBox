@@ -5,7 +5,7 @@ import pytest
 from nostalgiabox.actions import Action, InputEvent
 from nostalgiabox.app import TVApp
 from nostalgiabox.config import config_from_dict
-from nostalgiabox.input.cec import CecBackend
+from nostalgiabox.input.cec import CecBackend, interpret_cec_line
 from nostalgiabox.input.keyboard import key_event_should_emit
 from nostalgiabox.input.manager import InputManager
 from nostalgiabox.player import build_mpv_options, playback_audio_options
@@ -104,6 +104,9 @@ class _FakeCec:
         self.ignore_volume_keys = False
         self.ok = ok
         self.started = False
+        # This double stands in for a television that answered on the CEC bus.
+        # ``auto`` stays on the Pi until tv_present is True.
+        self.tv_present = True
 
     def send_command(self, command: str) -> bool:
         self.commands.append(command)
@@ -184,6 +187,42 @@ def test_tv_requested_without_cec_falls_back_to_pi(tmp_path):
     assert player.volume == 95
 
 
+def test_auto_uses_the_pi_when_cec_finds_no_tv(tmp_path):
+    cec = _FakeCec()
+    cec.tv_present = False
+    app, player = _app_with_cec(
+        tmp_path, cec, volume_control="auto", initial_volume=80
+    )
+    app.start()
+    assert app.volume_mode == "pi"
+    send(app, Action.VOLUME_UP)
+    assert cec.commands == []
+    assert app.volume == 85
+    assert player.volume == 85
+    text = player.overlays.get(4, "")
+    assert "NO TV VOLUME" not in text
+    assert "TV VOL" not in text
+
+
+def test_auto_waits_quietly_and_switches_when_a_tv_answers(tmp_path):
+    cec = _FakeCec()
+    cec.tv_present = None
+    app, player = _app_with_cec(
+        tmp_path, cec, volume_control="auto", initial_volume=80
+    )
+    app.start()
+    send(app, Action.VOLUME_UP)
+    assert app.volume_mode == "pi"
+    assert app.volume == 85
+    assert cec.commands == []
+    cec.tv_present = True
+    send(app, Action.VOLUME_UP)
+    assert app.volume_mode == "tv"
+    assert app.volume == 85
+    assert player.volume == 85
+    assert cec.commands == ["volup"]
+
+
 def test_pi_mode_ignores_a_present_cec_sender(tmp_path):
     cec = _FakeCec()
     app, player = _app_with_cec(tmp_path, cec, volume_control="pi", initial_volume=50)
@@ -194,6 +233,25 @@ def test_pi_mode_ignores_a_present_cec_sender(tmp_path):
     assert cec.commands == []
     assert app.volume == 55
     assert player.volume == 55
+
+
+def test_cec_lines_say_whether_a_tv_answered():
+    assert interpret_cec_line("ERROR: failed to open a connection to the CEC adapter") is False
+    assert interpret_cec_line("power status: unknown") is False
+    assert interpret_cec_line("power status: on") is True
+    assert interpret_cec_line("power status: standby") is True
+    assert interpret_cec_line("device #0: TV") is True
+    assert interpret_cec_line("TV (0): power status changed from 'unknown' to 'on'") is True
+    assert interpret_cec_line("key pressed: volume up (65)") is None
+    backend = CecBackend()
+    backend._handle_line("power status: unknown")
+    assert backend.tv_present is False
+    backend._probe_expired()
+    assert backend.tv_present is False
+    backend._handle_line("power status: on")
+    assert backend.tv_present is True
+    backend._probe_expired()
+    assert backend.tv_present is True
 
 
 def test_cec_echo_of_volume_keys_is_dropped_while_passthrough_is_on():

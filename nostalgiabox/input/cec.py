@@ -14,6 +14,7 @@ import logging
 import re
 import shutil
 import subprocess
+import threading
 from typing import List, Optional
 
 from ..actions import Action
@@ -37,6 +38,36 @@ _CEC_VOLUME_COMMANDS = {
 # that echo would send the command again.
 _VOLUME_ACTIONS = frozenset({Action.VOLUME_UP, Action.VOLUME_DOWN, Action.MUTE})
 
+# How long to wait after cec-client is ready for a TV to answer `pow 0`.
+_TV_PROBE_SECONDS = 3.0
+
+
+def interpret_cec_line(line: str) -> Optional[bool]:
+    """What one cec-client line says about a television.
+
+    ``True`` means a TV answered. ``False`` means the adapter failed or the
+    TV's power status is unknown. ``None`` means the line is about something
+    else (a key press, startup chatter).
+    """
+    text = line.lower()
+    if (
+        "failed to open" in text
+        or "could not open a connection" in text
+        or "could not detect" in text
+    ):
+        return False
+    if "power status: unknown" in text:
+        return False
+    if "power status:" in text and any(
+        token in text for token in (" on", " standby", " in transition")
+    ):
+        return True
+    if re.search(r"device\s*#\s*0\b.*\btv\b", text):
+        return True
+    if re.search(r"\btv\s*\(\s*0\s*\)", text):
+        return True
+    return None
+
 
 class CecBackend(InputBackend):
     """Reads TV-remote button presses forwarded over HDMI-CEC."""
@@ -58,6 +89,11 @@ class CecBackend(InputBackend):
         # Set by the app before start() when volume keys are forwarded to the
         # TV, so the echo of our own volup/voldown/mute is not a new press.
         self.ignore_volume_keys = False
+        # None until cec-client reports a TV, an adapter failure, or the probe
+        # times out. ``auto`` volume stays on the Pi while this is not True.
+        self.tv_present: Optional[bool] = None
+        self._probe_sent = False
+        self._probe_timer: Optional[threading.Timer] = None
 
     @staticmethod
     def is_available(binary: str = "cec-client") -> bool:
@@ -86,6 +122,7 @@ class CecBackend(InputBackend):
             )
         except OSError as exc:
             log.warning("could not start %s: %s", self._binary, exc)
+            self.tv_present = False
             return
 
         log.info("HDMI-CEC input active via %s", self._binary)
@@ -96,6 +133,9 @@ class CecBackend(InputBackend):
             self._handle_line(line)
 
     def _handle_line(self, line: str) -> None:
+        self._note_tv(line)
+        if "waiting for input" in line.lower():
+            self._request_tv_probe()
         match = _KEY_PRESSED_RE.search(line)
         if not match:
             return
@@ -106,25 +146,57 @@ class CecBackend(InputBackend):
             return
         self.emit(event)
 
+    def _note_tv(self, line: str) -> None:
+        found = interpret_cec_line(line)
+        if found is True:
+            self.tv_present = True
+        elif found is False and self.tv_present is not True:
+            self.tv_present = False
+
+    def _request_tv_probe(self) -> None:
+        """Ask logical address 0 (the TV) for its power status, once."""
+        if self._probe_sent:
+            return
+        self._probe_sent = True
+        if not self._write("pow 0"):
+            if self.tv_present is not True:
+                self.tv_present = False
+            return
+        timer = threading.Timer(_TV_PROBE_SECONDS, self._probe_expired)
+        timer.daemon = True
+        self._probe_timer = timer
+        timer.start()
+
+    def _probe_expired(self) -> None:
+        if self.tv_present is None:
+            self.tv_present = False
+            log.info("no HDMI-CEC television answered; volume stays on the Pi")
+
     def send_command(self, command: str) -> bool:
         """Send one cec-client command, such as ``volup``, ``voldown``, or ``mute``.
 
         Returns False when the client is not running. The caller leaves the Pi
         volume unchanged in that case.
         """
-        proc = self._proc
-        if proc is None or proc.stdin is None:
-            return False
         line = str(command).strip().lower()
         if line not in _CEC_VOLUME_COMMANDS:
             log.warning("refusing unknown HDMI-CEC command %r", command)
             return False
+        if not self._write(line):
+            log.warning("HDMI-CEC command %s failed", line)
+            return False
+        return True
+
+    def _write(self, line: str) -> bool:
+        proc = self._proc
+        if proc is None or proc.stdin is None:
+            return False
         try:
-            proc.stdin.write(line + "\n")
+            proc.stdin.write(line.strip() + "\n")
             proc.stdin.flush()
             return True
         except (OSError, ValueError):
-            log.warning("HDMI-CEC command %s failed", line, exc_info=True)
+            log.debug("HDMI-CEC write failed", exc_info=True)
             return False
 
     def _close(self) -> None:
@@ -132,6 +204,10 @@ class CecBackend(InputBackend):
         if proc is None:
             return
         self._proc = None
+        timer = self._probe_timer
+        self._probe_timer = None
+        if timer is not None:
+            timer.cancel()
         try:
             if proc.stdin is not None:
                 proc.stdin.close()
@@ -147,4 +223,4 @@ class CecBackend(InputBackend):
             pass
 
 
-__all__ = ["CecBackend"]
+__all__ = ["CecBackend", "interpret_cec_line"]

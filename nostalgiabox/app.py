@@ -68,6 +68,10 @@ class TVApp:
         # alone. "pi" steps ``self.volume``. Refined in start() once we know
         # whether a CEC backend exists.
         self.volume_mode = "pi"
+        # "" until a settled choice is logged, so a CEC probe still in flight
+        # does not announce "no TV" before the television has had a chance to
+        # answer.
+        self._volume_logged = ""
         self.standby = False
         self.powered_off = False
         self._playing_path: Optional[Path] = None
@@ -78,6 +82,9 @@ class TVApp:
         self._digit_buffer = ""
         self._digit_deadline = 0.0
         self._digit_entry_timeout = 2.0
+        # In-order channels checkpoint their place every few seconds so a
+        # reboot mid-episode does not lose the whole show.
+        self._next_progress_save = 0.0
 
         # Pending "bridge" switch: keep the old show playing until this deadline,
         # then cut to the channel that was preloaded. The channel banner is shown
@@ -162,6 +169,10 @@ class TVApp:
     def shutdown(self) -> None:
         self._running = False
         try:
+            self._remember_position()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             self.overlay.clear_all()
         except Exception:  # noqa: BLE001
             pass
@@ -176,6 +187,8 @@ class TVApp:
         at most one queued input event.
         """
         now = self._clock()
+        self._resolve_volume_mode()
+        self._maybe_checkpoint(now)
         self.overlay.tick()
         self._maybe_commit_switch(now)
         self._maybe_commit_digits(now)
@@ -272,6 +285,7 @@ class TVApp:
         self.overlay.clear_standby()
 
         request = channel.tune_in()
+        self._persist_if_in_order(channel)
         self._pending_banner = None
 
         if request is None:
@@ -330,21 +344,36 @@ class TVApp:
 
     # -- volume -------------------------------------------------------------
     def _resolve_volume_mode(self) -> None:
-        """Pick TV passthrough or the Pi knob before input starts.
+        """Pick TV passthrough or the Pi knob.
 
-        The ignore flag has to be set first: cec-client echoes a volume key
-        it just transmitted, and treating that echo as another press would
-        run the level away on its own.
+        ``auto`` uses the TV only after cec-client has actually found one.
+        While that probe is still running, and when no TV answers, the Pi
+        volume is used and nothing is drawn on screen. The ignore flag is set
+        only in TV mode: cec-client echoes a volume key it just transmitted,
+        and treating that echo as another press would run the level away.
         """
         cec = self._cec_backend()
+        presence = getattr(cec, "tv_present", None) if cec is not None else False
+        requested = str(self.config.volume_control).lower()
+        # None means "still looking". Stay on the Pi quietly until it settles.
+        if presence is None and requested != "pi":
+            self.volume_mode = "pi"
+            if cec is not None:
+                cec.ignore_volume_keys = False
+            return
+        tv = presence is True
         self.volume_mode = resolve_volume_control(
-            self.config.volume_control, cec_available=cec is not None
+            self.config.volume_control, cec_available=tv
         )
-        if self.volume_mode == "tv" and cec is not None:
-            cec.ignore_volume_keys = True
+        if cec is not None:
+            cec.ignore_volume_keys = self.volume_mode == "tv"
+        if self.volume_mode == self._volume_logged:
+            return
+        self._volume_logged = self.volume_mode
+        if self.volume_mode == "tv":
             log.info("volume keys control the TV over HDMI-CEC; Pi output stays at %s", self.volume)
-        elif self.volume_mode == "pi" and str(self.config.volume_control).lower() != "pi":
-            log.info("HDMI-CEC volume is unavailable; the remote controls the Pi volume")
+        elif requested != "pi":
+            log.info("no HDMI-CEC television; the remote controls the Pi volume")
 
     def _cec_backend(self):
         for backend in self.input.backends:
@@ -359,12 +388,14 @@ class TVApp:
         self.player.set_mute(self.muted)
 
     def _volume_up(self) -> None:
+        self._resolve_volume_mode()
         if self.volume_mode == "tv":
             self._tv_volume("volup", "TV VOL +")
             return
         self._set_volume(self.volume + self.config.volume_step, unmute=True)
 
     def _volume_down(self) -> None:
+        self._resolve_volume_mode()
         if self.volume_mode == "tv":
             self._tv_volume("voldown", "TV VOL -")
             return
@@ -417,6 +448,7 @@ class TVApp:
             log.exception("power-off command failed: %s", command)
 
     def _toggle_mute(self) -> None:
+        self._resolve_volume_mode()
         if self.volume_mode == "tv":
             self._tv_volume("mute", "TV MUTE")
             return
@@ -474,7 +506,9 @@ class TVApp:
                 advanced = True
 
     def _advance_current(self) -> None:
-        request = self.lineup.current.advance()
+        channel = self.lineup.current
+        request = channel.advance()
+        self._persist_if_in_order(channel)
         if request is None:
             self._show_no_signal(self.lineup.current)
         else:
@@ -482,11 +516,41 @@ class TVApp:
 
     # -- helpers ------------------------------------------------------------
     def _remember_position(self) -> None:
-        if self.config.tune_in != "resume" or self._playing_path is None:
+        channel = self.lineup.current
+        in_order = channel.config.order == "in_order" and channel.tune_in_mode != "broadcast"
+        if self.config.tune_in != "resume" and not in_order:
+            return
+        if self._playing_path is None:
             return
         pos = self.player.get_time_pos()
-        if pos is not None:
-            self.lineup.current.remember(self._playing_path, pos)
+        if pos is None:
+            return
+        channel.remember(self._playing_path, pos)
+        if in_order:
+            self._persist_if_in_order(channel)
+
+    def _maybe_checkpoint(self, now: float) -> None:
+        if now < self._next_progress_save:
+            return
+        self._next_progress_save = now + 5.0
+        channel = self.lineup.current
+        if channel.config.order != "in_order" or channel.tune_in_mode == "broadcast":
+            return
+        if self._playing_path is None:
+            return
+        pos = self.player.get_time_pos()
+        if pos is None:
+            return
+        channel.remember(self._playing_path, pos)
+        self._persist_if_in_order(channel)
+
+    def _persist_if_in_order(self, channel) -> None:
+        """Write an in-order channel's place. Shuffle channels are not saved."""
+        state = getattr(self.lineup, "state", None)
+        if state is None or channel.config.order != "in_order":
+            return
+        state.set(channel.config.path, channel.bookmark())
+        state.save()
 
     def _select_start_channel(self) -> None:
         if self.config.start_channel is not None and self.lineup.has_number(

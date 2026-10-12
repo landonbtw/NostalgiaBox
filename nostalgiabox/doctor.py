@@ -14,12 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, TextIO
 
-from .channel import scan_episodes
+from .channel import preview_episodes, scan_episodes
 from .config import (
     DEFAULT_MEDIA_ROOT,
     Config,
     ConfigError,
 )
+from .playback_state import PlaybackState, default_state_path
 
 # Directories that belong to the program. Anything else full of videos was
 # almost certainly dropped in the wrong place (see issue #33).
@@ -246,6 +247,7 @@ def _report_channels(config: Config, emit, problems) -> int:
         problems.append("episodes")
         return 0
 
+    state = PlaybackState.load(config.state_file or default_state_path())
     rows = []
     for channel in config.channels:
         episodes = scan_episodes(
@@ -255,11 +257,12 @@ def _report_channels(config: Config, emit, problems) -> int:
             exclude=channel.exclude,
             exclude_seasons=channel.exclude_seasons,
         )
-        rows.append((channel, len(episodes), channel.path.exists()))
-    total = sum(count for _, count, _ in rows)
+        rows.append((channel, episodes, channel.path.exists()))
+    total = sum(len(episodes) for _, episodes, _ in rows)
     missing_paths = sum(1 for _, _, exists in rows if not exists)
 
-    for channel, count, exists in rows:
+    for channel, episodes, exists in rows:
+        count = len(episodes)
         if not exists:
             flag = "FIX"
             note = "folder does not exist"
@@ -272,11 +275,28 @@ def _report_channels(config: Config, emit, problems) -> int:
             note = ""
         suffix = f"  ({note})" if note else ""
         label = "episode" if count == 1 else "episodes"
+        mode = "in order" if channel.order == "in_order" else "shuffle"
         emit(
             f"  {flag:<3}  CH {channel.number:>3}  {channel.name:<28} "
-            f"{count:>4} {label}{suffix}"
+            f"{count:>4} {label}  {mode}{suffix}"
         )
         emit(f"         {channel.path}")
+        if episodes:
+            upcoming = preview_episodes(
+                channel.path,
+                episodes,
+                order=channel.order,
+                bookmark=state.get(channel.path),
+                limit=3,
+            )
+            names = ", ".join(path.name for path in upcoming)
+            if len(episodes) > len(upcoming):
+                names = f"{names}, ..."
+            if channel.order == "in_order":
+                emit(f"         Plays next: {names}")
+            else:
+                emit(f"         In name order: {names}")
+                emit("         Playback shuffles these.")
 
     if missing_paths and config.media_source == "channels":
         emit("       Those folders are listed in config.yaml and were not found.")

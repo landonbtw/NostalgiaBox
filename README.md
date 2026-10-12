@@ -5,7 +5,10 @@
 NostalgiaBox plays folders of old children's shows as if they were real TV
 **channels**. Flip to a channel and a show is already playing (starting a few
 seconds in, like you just tuned in); when an episode ends, the next one rolls
-automatically on an endless shuffle. It boots straight to the TV on power-up, is
+automatically on an endless shuffle. Shuffle is the default. Playing a series
+in episode order is covered in
+[How episodes are picked](#how-episodes-are-picked-and-playing-a-series-in-order).
+The box boots straight to the TV on power-up, is
 driven by a simple remote, sends audio over HDMI, and has an authentic
 early-2000s vibe — a green on-screen channel banner and volume bar, and a curved
 "CRT" picture. No menus, no apps, no touchscreens. Just a remote and channels.
@@ -448,16 +451,93 @@ sudo systemctl restart nostalgiabox
 
 ---
 
+## How episodes are picked (and playing a series in order)
+
+I built NostalgiaBox for my kids, and shuffle is the default on purpose.
+
+A shuffle gives them variety. The box plays every episode once before it
+plays any of them again, so they are unlikely to see the same episode twice
+for a while. If they do not like what is on, or they just saw it, they flip
+away and come back to something new. That is what real TV felt like. Leave
+the setting alone and that is what you get.
+
+When you want a series in sequence, 101 then 102 then 103, set the order.
+On the Pi, open `~/NostalgiaBox/config.yaml` and add:
+
+```yaml
+order: in_order
+```
+
+Apply it:
+
+```bash
+sudo systemctl restart nostalgiabox
+```
+
+Every channel then plays in filename order, and when the last episode ends
+it starts again at the first. Each channel remembers its place across channel
+flips and reboots. The place is saved in
+`~/.local/state/nostalgiabox/playback.json`
+(or under `$XDG_STATE_HOME/nostalgiabox/` when that variable is set).
+
+One show, and the rest stay shuffled: put an empty file named `.inorder` in
+that show's folder. No channel list required.
+
+```bash
+touch "/media/nostalgiabox/Dragon Tales/.inorder"
+sudo systemctl restart nostalgiabox
+```
+
+Or name the channel in the config:
+
+```yaml
+channels:
+  - number: 3
+    name: "Dragon Tales"
+    path: "/media/nostalgiabox/Dragon Tales"
+    order: in_order
+```
+
+`shuffle: false` is the same as `order: in_order`. If a channel sets both,
+`order` wins. A `.inorder` file opts that folder in. `order: shuffle` on the
+channel keeps the shuffle even if the file is there.
+
+**Naming tip.** Name the files the way you want to watch them. These all play
+in episode order, including across `Season 1/` and `Season 2/` folders:
+
+- `101.mp4`, `102.mp4`, `103.mp4`
+- `S01E01.mp4`, `S01E02.mp4`, `S02E01.mp4`
+- `1x01.mp4`, `1x02.mp4`
+
+`Ep 2` comes before `Ep 10`.
+
+**With `tune_in`.** The default is `tune_in: random`. Order changes what that
+means.
+
+- `order: shuffle` and `tune_in: random` — a shuffled episode, already a few seconds in. This is the normal box.
+- `order: shuffle` and `tune_in: resume` — the same episode and spot until the Pi reboots.
+- `order: shuffle` and `tune_in: broadcast` — a shuffled station that keeps moving in real time, even while another channel is on.
+- `order: in_order` with `tune_in: random` or `tune_in: resume` — the series, in order, from the saved spot. A new episode starts at the beginning. The few-seconds skip is for shuffle.
+- `order: in_order` and `tune_in: broadcast` — the series is the schedule, in filename order, moving in real time, including after a reboot.
+
+`nostalgiabox --check` prints `shuffle` or `in order` on each channel and the
+first episodes. For an in-order channel that list is the order they will play,
+starting from the saved episode. For a shuffle channel the list is filename
+order, and the next line says playback shuffles them.
+
+---
+
 ## Volume
 
 The remote does not have two volume knobs. One press moves one thing, once,
 and letting go stops it.
 
-**Television volume (the default when CEC works).** The installer puts
-`cec-utils` on the Pi. If `cec-client` is there, volume up, volume down, and
-mute on the Flirc remote are sent to the TV over HDMI-CEC. The Pi stays at
-full output (`initial_volume: 100`), so a TV set to 40 is just 40 — the Pi is
-not also sitting at 70 and making that quieter. Program the Flirc exactly as
+**Television volume (when the TV answers CEC).** The installer puts
+`cec-utils` on the Pi. With `volume_control: auto` (the default), volume up,
+volume down, and mute go to the TV over HDMI-CEC only when `cec-client` finds
+a television. A set with no HDMI-CEC keeps using the Pi volume. Nothing about
+that is drawn on the screen. The Pi stays at full output
+(`initial_volume: 100`), so a TV set to 40 is just 40. Program the Flirc exactly as
 in step 8 (Full Keyboard: Right = volume up, Left = volume down, **m** = mute).
 On the TV, turn on HDMI-CEC. Makers call it Anynet+ (Samsung), SimpLink (LG),
 BRAVIA Sync (Sony), or HDMI control. The on-screen note says `TV VOL +`,
@@ -476,9 +556,9 @@ Then `sudo systemctl restart nostalgiabox`. Each press adds or subtracts
 `volume_step` (5 unless you change it). The level is one number for every
 episode and every channel. It does not climb on its own after the bar
 disappears, and a new show does not pick a new gain. `volume_control: auto`
-(the default when the line is missing) uses the TV if CEC is available and the
-Pi otherwise. `volume_control: tv` asks for the TV and falls back to the Pi
-when CEC is missing.
+(the default when the line is missing) uses the TV when `cec-client` finds one,
+and the Pi when it does not. `volume_control: tv` asks for the TV and falls
+back to the Pi when no television answers.
 
 Shows are not loudness-normalized. A quiet rip and a loud rip can still sound
 different from each other. That is the file. Nothing in NostalgiaBox turns on
@@ -652,6 +732,15 @@ does not support it. Set `volume_control: pi` for the on-screen bar instead.
 Flirc stays on the step 8 layout either way. There is no per-show loudness
 normalizer to turn off; it is not used.
 
+### The next episode is not the next one
+
+Shuffle is the default, so the box can jump from an older file to a newer one.
+That is the variety described in
+[How episodes are picked](#how-episodes-are-picked-and-playing-a-series-in-order).
+For 101, 102, 103 in order, add `order: in_order` to `config.yaml`, or put a
+`.inorder` file in that show's folder, then restart the service.
+`nostalgiabox --check` shows the order and the first episodes.
+
 ### The remote does nothing
 
 The Flirc has to be programmed (step 8) and plugged into the Pi. Unplug it,
@@ -680,11 +769,12 @@ usb_media_root: /media/nostalgiabox-usb
 prefer_usb: true             # a USB drive with videos wins over the SD folder
 first_channel_number: 2
 tune_in: random              # random | resume | broadcast
+order: shuffle               # shuffle | in_order   (shuffle: false = in_order)
 start_channel: 2
 start_offset: [6, 10]        # start each episode 6–10 seconds in
 transition: none             # none | glitch | static
 initial_volume: 100          # Pi output. 100 = let the TV do the volume
-volume_control: auto         # auto | tv | pi   (auto = TV when CEC works)
+volume_control: auto         # auto | tv | pi   (auto = TV only if a TV answers)
 audio_device: "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
 ```
 
@@ -712,6 +802,7 @@ nostalgiabox/
 ├── doctor.py      the "nostalgiabox --check" report
 ├── usb.py         which USB partition to mount
 ├── playlist.py    the shuffle bag (each episode once, then reshuffle)
+├── playback_state.py  saved place for in-order channels
 ├── channel.py     folder scanning, tune-in modes, channel navigation
 ├── player.py      mpv player (+ a mock for tests)
 ├── volume.py      TV vs Pi volume mode
