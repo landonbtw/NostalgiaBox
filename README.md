@@ -707,6 +707,30 @@ journalctl -u nostalgiabox -n 50 --no-pager
 The log should mention channels, not a Python traceback. Leave it running
 with `journalctl -u nostalgiabox -f` while you watch the TV.
 
+### A show freezes on one picture
+
+The box watches playback. If the picture and the sound stop moving for about
+20 seconds, it writes down the episode and the timestamp, jumps ahead a few
+seconds, and if that spot is still stuck, skips to the next episode. A file
+that freezes again is skipped the next times it comes up. Shuffle is unchanged.
+
+On the Pi, the list of those files is:
+
+```bash
+grep "problem file" ~/.local/state/nostalgiabox/problem-files.log
+```
+
+Each line has the episode path and the time where it froze. The same lines are
+in the service log:
+
+```bash
+journalctl -u nostalgiabox | grep "problem file"
+```
+
+To give one file another chance, delete its entry in
+`~/.local/state/nostalgiabox/problem-files.json` and restart. Deleting that
+whole file forgives every episode. The `.log` file is only a history.
+
 ### No sound
 
 Repeat step 9. If you used `vc4hdmi0`, try `vc4hdmi1` (or the other way
@@ -803,6 +827,7 @@ nostalgiabox/
 ├── usb.py         which USB partition to mount
 ├── playlist.py    the shuffle bag (each episode once, then reshuffle)
 ├── playback_state.py  saved place for in-order channels
+├── stall.py       frozen-picture watchdog and the problem-file log
 ├── channel.py     folder scanning, tune-in modes, channel navigation
 ├── player.py      mpv player (+ a mock for tests)
 ├── volume.py      TV vs Pi volume mode

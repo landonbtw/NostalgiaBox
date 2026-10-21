@@ -5,6 +5,7 @@ from nostalgiabox.app import TVApp
 from nostalgiabox.config import config_from_dict
 from nostalgiabox.input.manager import InputManager
 from nostalgiabox.player import END_EOF, MockPlayer
+from nostalgiabox.stall import ProblemLog
 from tests.helpers import FakeClock, make_show
 
 
@@ -277,6 +278,176 @@ def test_channel_banner_deferred_until_switch(tmp_path):
     clock.advance(1.0)
     app.step()                            # cut-over happens here
     assert "CH 03" in player.overlays.get(1, "")  # banner appears at the switch
+
+
+def test_frozen_episode_is_logged_then_skipped(tmp_path):
+    """A stuck timestamp seeks ahead once, and a second freeze skips the file."""
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        stall_seek=10,
+        stall_flag_after=2,
+        state_file=str(state),
+    )
+    app.start()
+    first = player.current
+    player.time_pos = 125.0  # 2:05, and it never moves
+    clock.advance(5)
+    app.step()
+    assert player.seeks == [135.0]
+    assert player.current == first  # still this episode, past the frozen spot
+    clock.advance(5)
+    app.step()
+    assert player.current is not None and player.current != first
+    assert "SKIPPING FILE" in player.overlays.get(4, "")
+    text = (state.parent / "problem-files.log").read_text(encoding="utf-8")
+    assert str(first) in text
+    assert "at 2:05 (125.0s)" in text
+    assert "stuck at this timestamp" in text
+    assert "seeking ahead 10s" in text
+    assert "channel 2 Dragon Tales" in text
+    assert "flagged (2 freezes)" in text
+    assert ProblemLog(state.parent, flag_after=2).is_flagged(first)
+
+
+def test_playback_that_keeps_moving_is_left_alone(tmp_path):
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        state_file=str(state),
+    )
+    app.start()
+    first = player.current
+    for _ in range(6):
+        clock.advance(3)
+        player.time_pos += 3
+        app.step()
+    assert player.seeks == []
+    assert player.current == first
+    assert not (state.parent / "problem-files.log").exists()
+
+
+def test_hung_player_skips_the_episode(tmp_path):
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        state_file=str(state),
+    )
+    app.start()
+    first = player.current
+    player.fail_sample = True  # property reads fail: the player is not answering
+    clock.advance(5)
+    app.step()
+    assert player.seeks == []
+    assert player.current is not None and player.current != first
+    text = (state.parent / "problem-files.log").read_text(encoding="utf-8")
+    assert str(first) in text
+    assert "player stopped responding" in text
+    assert "skipping to the next episode" in text
+
+
+def test_failed_seek_skips_to_the_next_episode(tmp_path):
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        state_file=str(state),
+    )
+    app.start()
+    first = player.current
+    player.time_pos = 40.0
+    player.fail_seek = True
+    clock.advance(5)
+    app.step()
+    assert player.seeks == []
+    assert player.current is not None and player.current != first
+    text = (state.parent / "problem-files.log").read_text(encoding="utf-8")
+    assert "seek failed; skipping to the next episode" in text
+
+
+def test_standby_does_not_look_like_a_freeze(tmp_path):
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        state_file=str(state),
+    )
+    app.start()
+    send(app, Action.POWER)
+    clock.advance(30)
+    app.step()
+    assert player.seeks == []
+    assert not (state.parent / "problem-files.log").exists()
+
+
+def test_channel_change_restarts_the_stall_timer(tmp_path):
+    state = tmp_path / "state" / "playback.json"
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_timeout=5,
+        stall_grace=0,
+        state_file=str(state),
+    )
+    app.start()
+    clock.advance(4)  # almost, but not quite, a stall
+    send(app, Action.CHANNEL_UP)  # a new episode starts the timer over
+    clock.advance(4)
+    app.step()
+    assert player.seeks == []
+    assert not (state.parent / "problem-files.log").exists()
+
+
+def test_flagged_episode_is_skipped_the_next_time_it_is_chosen(tmp_path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    bad = tmp_path / "dragon" / "dragon_ep01.mp4"
+    problems = ProblemLog(state_dir, flag_after=2)
+    problems.note_stall(bad, 1.0, "seeking ahead 10s", "channel 2 Dragon Tales")
+    problems.note_stall(bad, 11.0, "skipping to the next episode", "channel 2 Dragon Tales")
+    app, player, _ = build_app(
+        tmp_path,
+        order="in_order",
+        start_offset=0,
+        bridge_seconds=0,
+        state_file=str(state_dir / "playback.json"),
+        stall_flag_after=2,
+    )
+    app.start()
+    assert player.current is not None
+    assert player.current.name == "dragon_ep02.mp4"
+    text = (state_dir / "problem-files.log").read_text(encoding="utf-8")
+    assert "flagged from earlier freezes; skipping" in text
+    assert str(bad) in text
+
+
+def test_stall_watch_off_keeps_a_frozen_frame(tmp_path):
+    app, player, clock = build_app(
+        tmp_path,
+        bridge_seconds=0,
+        stall_watch=False,
+        stall_timeout=5,
+        stall_grace=0,
+    )
+    app.start()
+    first = player.current
+    clock.advance(30)
+    app.step()
+    assert player.seeks == []
+    assert player.current == first
 
 
 def test_resume_mode_restarts_where_left(tmp_path):

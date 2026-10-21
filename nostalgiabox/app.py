@@ -5,7 +5,8 @@ queue, and turns remote-control actions into TV behaviour: changing channels
 (with a burst of static and a channel banner), adjusting and muting the volume,
 direct channel entry by number, an info banner, a "last channel" jump, and a
 standby/off mode. When an episode ends it automatically rolls into the next one
-on that channel's shuffle, so the box never stops "broadcasting".
+on that channel's shuffle, so the box never stops "broadcasting". If the
+picture freezes, a stall watchdog logs the file and recovers.
 
 The class is written to be testable without a display: pass it a
 :class:`~nostalgiabox.player.MockPlayer` and a fake clock and you can single-step
@@ -27,6 +28,7 @@ from .config import Config
 from .input.manager import InputManager, create_backends
 from .overlay import OverlayManager
 from .player import END_EOF, END_ERROR, MockPlayer, Player
+from .stall import PlaybackSample, ProblemLog, Stall, StallWatchdog, problem_directory
 from .volume import resolve_volume_control
 from .static_gen import (
     COLORBARS_FILENAME,
@@ -85,6 +87,16 @@ class TVApp:
         # In-order channels checkpoint their place every few seconds so a
         # reboot mid-episode does not lose the whole show.
         self._next_progress_save = 0.0
+        # Frozen picture: the clock (or the frame) stops, we log the file,
+        # seek past it once, then skip. Shuffle itself is unchanged.
+        self._stall = StallWatchdog(
+            timeout=config.stall_timeout,
+            grace=config.stall_grace,
+        )
+        self._problems = ProblemLog(
+            problem_directory(config.state_file),
+            flag_after=config.stall_flag_after,
+        )
 
         # Pending "bridge" switch: keep the old show playing until this deadline,
         # then cut to the channel that was preloaded. The channel banner is shown
@@ -193,6 +205,7 @@ class TVApp:
         self._maybe_commit_switch(now)
         self._maybe_commit_digits(now)
         self._drain_playback_events()
+        self._watch_for_stall(now)
 
         event = self.input.get(timeout=timeout if block else 0.0)
         if event is not None:
@@ -202,7 +215,10 @@ class TVApp:
         """Cut over to the preloaded channel once the bridge window has elapsed."""
         if self._switch_deadline is not None and now >= self._switch_deadline:
             self._switch_deadline = None
-            self.player.commit_switch()
+            if self.player.commit_switch():
+                # The cut landed on the preloaded episode. Watch that file,
+                # not the one that was on screen during the bridge.
+                self._arm_stall(self._playing_path)
             self._apply_output_volume()
             # Flash the channel banner right as the picture actually changes.
             if self._pending_banner is not None:
@@ -284,7 +300,7 @@ class TVApp:
         channel = self.lineup.current
         self.overlay.clear_standby()
 
-        request = channel.tune_in()
+        request = self._skip_flagged(channel.tune_in())
         self._persist_if_in_order(channel)
         self._pending_banner = None
 
@@ -304,6 +320,7 @@ class TVApp:
             self._switch_deadline = None
             self.overlay.show_channel_bug(channel.number, channel.name)
             self._playing_path = request.path
+            self._arm_stall(request.path)
             self.player.play_transition(
                 self._transition_path,
                 request.path,
@@ -315,6 +332,7 @@ class TVApp:
             # No transition effect: keep the current show playing while the next
             # channel preloads, then cut over (no frozen frame). The banner is
             # shown at the cut-over (see _maybe_commit_switch), not right now.
+            # The stall watchdog keeps watching the file still on screen.
             self._playing_path = request.path
             self.player.preload_next(request.path, start=request.start)
             self._switch_deadline = self._clock() + self.config.bridge_seconds
@@ -326,6 +344,7 @@ class TVApp:
 
     def _play_request(self, request: PlayRequest) -> None:
         self._playing_path = request.path
+        self._arm_stall(request.path)
         self.player.play(request.path, start=request.start)
         self._apply_output_volume()
 
@@ -333,6 +352,7 @@ class TVApp:
         self._switch_deadline = None
         self._pending_banner = None
         self._playing_path = None
+        self._stall.disarm()
         if self._colorbars_path is not None:
             self.player.play_loop(self._colorbars_path)
         else:
@@ -429,6 +449,7 @@ class TVApp:
         self.powered_off = True
         self._switch_deadline = None
         self._pending_banner = None
+        self._stall.disarm()
         try:
             self.overlay.clear_all()
             self.overlay.show_message("GOODBYE", duration=0)
@@ -467,6 +488,7 @@ class TVApp:
             self._remember_position()
             self._switch_deadline = None
             self._pending_banner = None
+            self._stall.disarm()
             self.player.stop()
             self.overlay.clear_all()
             self.overlay.show_standby()
@@ -507,12 +529,110 @@ class TVApp:
 
     def _advance_current(self) -> None:
         channel = self.lineup.current
-        request = channel.advance()
+        request = self._skip_flagged(channel.advance())
         self._persist_if_in_order(channel)
         if request is None:
             self._show_no_signal(self.lineup.current)
         else:
             self._play_request(request)
+
+    # -- frozen picture -----------------------------------------------------
+    def _arm_stall(self, path: Optional[Path]) -> None:
+        if not self.config.stall_watch or path is None or self.standby:
+            self._stall.disarm()
+            return
+        self._stall.arm(path, self._clock())
+
+    def _channel_label(self) -> str:
+        channel = self.lineup.current
+        return f"channel {channel.number} {channel.name}"
+
+    def _skip_flagged(self, request: Optional[PlayRequest]) -> Optional[PlayRequest]:
+        """Jump over files that have frozen often enough to be flagged.
+
+        Shuffle and in-order still choose the episode. This only refuses one
+        that has already been logged as a repeat problem. If every episode on
+        the channel is flagged, the current choice plays anyway.
+        """
+        if request is None or not self.config.stall_watch:
+            return request
+        channel = self.lineup.current
+        label = self._channel_label()
+        seen: set[Path] = set()
+        limit = max(1, len(channel.episodes))
+        while request is not None and self._problems.is_flagged(request.path):
+            if request.path in seen or len(seen) >= limit:
+                self._problems.write(
+                    request.path,
+                    None,
+                    "every episode on this channel is flagged; playing it anyway",
+                    label,
+                )
+                return request
+            seen.add(request.path)
+            self._problems.write(
+                request.path,
+                None,
+                "flagged from earlier freezes; skipping",
+                label,
+            )
+            request = channel.advance()
+            self._persist_if_in_order(channel)
+        return request
+
+    def _watch_for_stall(self, now: float) -> None:
+        if not self.config.stall_watch or self.standby or self.powered_off:
+            return
+        if self._stall.path is None:
+            return
+        # A channel change is about to cut. Keep the current verdict for the
+        # file still on screen, but don't recover in the middle of the bridge.
+        if self._switch_deadline is not None:
+            return
+        try:
+            sample = self.player.playback_sample()
+        except Exception:  # noqa: BLE001
+            log.debug("stall sample failed", exc_info=True)
+            sample = PlaybackSample(failed=True)
+        event = self._stall.observe(sample, now)
+        if event is not None:
+            self._recover_from_stall(event)
+
+    def _recover_from_stall(self, event: Stall) -> None:
+        label = self._channel_label()
+        count = self._problems.stalls(event.path) + 1
+        will_flag = count >= self.config.stall_flag_after
+        action = "skip" if will_flag else event.action
+        if action == "seek":
+            message = (
+                f"{event.detail}; seeking ahead {self.config.stall_seek:g}s"
+            )
+        else:
+            flag_bit = f"; flagged ({count} freezes)" if will_flag else ""
+            message = f"{event.detail}; skipping to the next episode{flag_bit}"
+        self._problems.note_stall(event.path, event.position, message, label)
+        if action == "seek":
+            target = max(0.0, (event.position or 0.0) + self.config.stall_seek)
+            try:
+                self.player.seek(target)
+            except Exception:  # noqa: BLE001
+                log.exception("seek failed for %s", event.path)
+                self._problems.write(
+                    event.path,
+                    event.position,
+                    "seek failed; skipping to the next episode",
+                    label,
+                )
+                self._give_up_on_stall()
+                return
+            self._stall.note_seek(self._clock())
+            return
+        self._give_up_on_stall()
+
+    def _give_up_on_stall(self) -> None:
+        self.overlay.show_message("SKIPPING FILE")
+        self._stall.disarm()
+        self._advance_current()
 
     # -- helpers ------------------------------------------------------------
     def _remember_position(self) -> None:

@@ -19,6 +19,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from .stall import PlaybackSample, picture_token
+
 log = logging.getLogger(__name__)
 
 # Reason strings passed to the "playback finished" callback.
@@ -67,8 +69,29 @@ class Player(ABC):
         """
         self.play(target_path, start=start)
 
-    def commit_switch(self) -> None:
-        """Switch to the item queued by :meth:`preload_next` (no-op by default)."""
+    def commit_switch(self) -> bool:
+        """Switch to the item queued by :meth:`preload_next`.
+
+        Returns False when there is nothing queued. The default has no preload.
+        """
+        return False
+
+    def seek(self, seconds: float) -> None:
+        """Jump to an absolute position. Used when the picture has frozen."""
+        raise NotImplementedError
+
+    def playback_sample(self) -> PlaybackSample:
+        """Clock, pause, and frame identity for the stall watchdog.
+
+        The default only knows the position. A sample that cannot be read is
+        a failure, which the watchdog treats as a hung player.
+        """
+        try:
+            pos = self.get_time_pos()
+        except Exception:  # noqa: BLE001
+            log.debug("playback sample failed", exc_info=True)
+            return PlaybackSample(failed=True)
+        return PlaybackSample(position=pos)
 
     @abstractmethod
     def stop(self) -> None:
@@ -338,7 +361,7 @@ class MpvPlayer(Player):
             log.exception("failed to preload %s", target_path)
             self.play(target_path, start=start)
 
-    def commit_switch(self) -> None:
+    def commit_switch(self) -> bool:
         self._suppress = False
         try:
             self._mpv.command("playlist-next", "force")  # jump to the prefetched item
@@ -346,8 +369,34 @@ class MpvPlayer(Player):
             self._mpv.pause = False
         except Exception:  # noqa: BLE001
             log.debug("commit_switch failed", exc_info=True)
-            return
+            return False
         self._reapply_audio()
+        return True
+
+    def seek(self, seconds: float) -> None:  # pragma: no cover - needs libmpv
+        try:
+            self._suppress = False
+            self._mpv.command("seek", f"{max(0.0, float(seconds)):.3f}", "absolute")
+            self._mpv.pause = False
+        except Exception:
+            log.exception("seek to %.1fs failed", seconds)
+            raise
+
+    def playback_sample(self) -> PlaybackSample:  # pragma: no cover - needs libmpv
+        try:
+            raw_pos = self._mpv.time_pos
+            position = float(raw_pos) if raw_pos is not None else None
+        except Exception:  # noqa: BLE001
+            log.debug("playback sample failed", exc_info=True)
+            return PlaybackSample(failed=True)
+        return PlaybackSample(
+            position=position,
+            audio_position=_try_float(self._mpv, "audio_pts"),
+            picture=_try_picture(self._mpv),
+            paused=_try_bool(self._mpv, "pause"),
+            idle=_try_bool(self._mpv, "core_idle"),
+            ended=_try_bool(self._mpv, "eof_reached"),
+        )
 
     def stop(self) -> None:
         self._suppress = True
@@ -446,6 +495,16 @@ class MockPlayer(Player):
         self.messages: List[Tuple[str, float]] = []
         self.overlays: dict[int, str] = {}
         self.stops = 0
+        self.seeks: List[float] = []
+        # Knobs the stall watchdog reads. Tests move ``time_pos`` by hand;
+        # playback does not advance on its own.
+        self.paused = False
+        self.idle = False
+        self.ended = False
+        self.fail_sample = False
+        self.fail_seek = False
+        self.picture: Optional[str] = None
+        self.audio_pos: Optional[float] = None
 
     def _log(self, msg: str) -> None:
         if self.verbose:
@@ -455,6 +514,9 @@ class MockPlayer(Player):
         self.current = path
         self.looping = None
         self.time_pos = start
+        self.ended = False
+        self.paused = False
+        self.idle = False
         self.played.append((path, start))
         self._log(f"PLAY {path} @ {start:.1f}s")
 
@@ -476,6 +538,9 @@ class MockPlayer(Player):
         self.current = target_path
         self.looping = None
         self.time_pos = start
+        self.ended = False
+        self.paused = False
+        self.idle = False
         self.played.append((target_path, start))
         self._log(f"TRANSITION static={static_path} -> {target_path} @ {start:.1f}s")
 
@@ -484,16 +549,43 @@ class MockPlayer(Player):
         self.preloaded = (target_path, start)
         self._log(f"PRELOAD {target_path} @ {start:.1f}s (current keeps playing)")
 
-    def commit_switch(self) -> None:
+    def commit_switch(self) -> bool:
         if self.preloaded is None:
-            return
+            return False
         target, start = self.preloaded
         self.preloaded = None
         self.current = target
         self.looping = None
         self.time_pos = start
+        self.ended = False
+        self.paused = False
+        self.idle = False
         self.played.append((target, start))
         self._log(f"COMMIT SWITCH -> {target} @ {start:.1f}s")
+        return True
+
+    def seek(self, seconds: float) -> None:
+        if self.fail_seek:
+            raise RuntimeError("seek failed")
+        target = max(0.0, float(seconds))
+        self.seeks.append(target)
+        self.time_pos = target
+        self.paused = False
+        self._log(f"SEEK {target:.1f}s")
+
+    def playback_sample(self) -> PlaybackSample:
+        if self.fail_sample:
+            return PlaybackSample(failed=True)
+        if self.current is None:
+            return PlaybackSample(idle=True)
+        return PlaybackSample(
+            position=self.time_pos,
+            audio_position=self.audio_pos,
+            picture=self.picture,
+            paused=self.paused,
+            idle=self.idle,
+            ended=self.ended,
+        )
 
     def stop(self) -> None:
         self.current = None
@@ -535,6 +627,28 @@ class MockPlayer(Player):
         self.current = None
         if self.on_end is not None:
             self.on_end(reason)
+
+
+def _try_float(mpv, name: str) -> Optional[float]:  # pragma: no cover - libmpv specific
+    try:
+        value = getattr(mpv, name)
+        return float(value) if value is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _try_bool(mpv, name: str) -> bool:  # pragma: no cover - libmpv specific
+    try:
+        return bool(getattr(mpv, name))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _try_picture(mpv) -> Optional[str]:  # pragma: no cover - libmpv specific
+    try:
+        return picture_token(mpv.video_frame_info)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _extract_end_reason(event) -> str:  # pragma: no cover - libmpv specific

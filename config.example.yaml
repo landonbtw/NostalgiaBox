@@ -144,6 +144,17 @@ scan_recursive: true      # also look inside season sub-folders for episodes
 # video_extensions: [".mp4", ".mkv", ".avi", ".m4v"]   # override if needed
 # shuffle_seed: 1234       # set for a repeatable shuffle order (mostly for tests)
 
+# If a picture freezes (no movement, no sound), log the episode and recover.
+# The first time, playback jumps ahead. If it is still stuck, the next episode
+# starts. A file that freezes again is skipped the next time it comes up.
+# Find the files in ~/.local/state/nostalgiabox/problem-files.log
+# (the same lines are in: journalctl -u nostalgiabox | grep "problem file").
+# stall_watch: true
+# stall_timeout: 20        # seconds with no progress before it counts
+# stall_grace: 8           # ignore this long after a file starts or a seek
+# stall_seek: 10           # seconds to jump ahead on the first freeze
+# stall_flag_after: 2      # freezes before the file is skipped on sight
+
 # --- Remote control input ----------------------------------------------------
 # All backends are auto-detected; anything unavailable is skipped, so these are
 # only needed to turn things off or fine-tune device selection.

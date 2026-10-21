@@ -113,6 +113,29 @@ def test_video_extensions_normalised(tmp_path):
     assert cfg.video_extensions == (".mp4", ".mkv")
 
 
+def test_stall_watch_defaults_leave_shuffle_in_place(tmp_path):
+    make_show(tmp_path, "a", 1)
+    cfg = config_from_dict({"channels": [{"path": str(tmp_path / "a")}]})
+    assert cfg.order == "shuffle"
+    assert cfg.stall_watch is True
+    assert cfg.stall_timeout == 20
+    assert cfg.stall_grace == 8
+    assert cfg.stall_seek == 10
+    assert cfg.stall_flag_after == 2
+    tuned = config_from_dict(
+        {
+            "stall_watch": False,
+            "stall_timeout": 3,  # clamped up to the minimum
+            "stall_flag_after": 4,
+            "channels": [{"path": str(tmp_path / "a")}],
+        }
+    )
+    assert tuned.order == "shuffle"
+    assert tuned.stall_watch is False
+    assert tuned.stall_timeout == 5
+    assert tuned.stall_flag_after == 4
+
+
 def test_ui_and_crt_defaults(tmp_path):
     make_show(tmp_path, "a", 1)
     cfg = config_from_dict({"channels": [{"path": str(tmp_path / "a")}]})
